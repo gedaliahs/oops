@@ -56,16 +56,31 @@ var wrappedCommands = []string{
 }
 
 func wrapperDir() string {
+	// Use ~/.local/bin if it exists and is in PATH (Claude Code, many tools use this)
+	// Fall back to ~/.oops/bin
+	home, _ := os.UserHomeDir()
+	localBin := filepath.Join(home, ".local", "bin")
+	if info, err := os.Stat(localBin); err == nil && info.IsDir() {
+		return localBin
+	}
 	return filepath.Join(config.OopsDir(), "bin")
 }
 
 func isAgentModeOn() bool {
 	dir := wrapperDir()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
+	for _, name := range wrappedCommands {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
 	}
-	return len(entries) > 0
+	// Also check ~/.oops/bin in case it was set up there before
+	oopsBin := filepath.Join(config.OopsDir(), "bin")
+	for _, name := range wrappedCommands {
+		if _, err := os.Stat(filepath.Join(oopsBin, name)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func runAgentMode(cmd *cobra.Command, args []string) error {
@@ -146,13 +161,15 @@ func enableAgentMode() error {
 }
 
 func disableAgentMode() error {
-	dir := wrapperDir()
+	// Remove wrappers from both possible locations
+	dirs := []string{
+		wrapperDir(),
+		filepath.Join(config.OopsDir(), "bin"),
+	}
 
-	// Remove wrappers
-	entries, err := os.ReadDir(dir)
-	if err == nil {
-		for _, e := range entries {
-			os.Remove(filepath.Join(dir, e.Name()))
+	for _, dir := range dirs {
+		for _, name := range wrappedCommands {
+			os.Remove(filepath.Join(dir, name))
 		}
 	}
 
