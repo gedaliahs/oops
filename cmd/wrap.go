@@ -115,29 +115,26 @@ func enableAgentMode() error {
 		fmt.Println(style.Success(name + " → " + realBin))
 	}
 
-	// Add to PATH in shell config
+	// Add to PATH in ALL shell configs so wrappers work everywhere
 	home, _ := os.UserHomeDir()
 	pathLine := fmt.Sprintf("export PATH=\"%s:$PATH\"", dir)
 
+	// One file per shell family — zshenv for zsh, bashrc for bash
 	rcFiles := []string{
 		filepath.Join(home, ".zshenv"),
-		filepath.Join(home, ".zshrc"),
 		filepath.Join(home, ".bashrc"),
-		filepath.Join(home, ".bash_profile"),
 	}
 
 	for _, rc := range rcFiles {
-		if _, err := os.Stat(rc); err == nil {
-			data, _ := os.ReadFile(rc)
-			if !strings.Contains(string(data), ".oops/bin") {
-				f, err := os.OpenFile(rc, os.O_APPEND|os.O_WRONLY, 0o644)
-				if err == nil {
-					f.WriteString("\n" + pathLine + "\n")
-					f.Close()
-					fmt.Println(style.Success("Added ~/.oops/bin to PATH in " + rc))
-					break
-				}
-			}
+		data, _ := os.ReadFile(rc)
+		if strings.Contains(string(data), ".oops/bin") {
+			continue // already there
+		}
+		f, err := os.OpenFile(rc, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			f.WriteString("\n" + pathLine + "\n")
+			f.Close()
+			fmt.Println(style.Success("Added ~/.oops/bin to PATH in " + rc))
 		}
 	}
 
