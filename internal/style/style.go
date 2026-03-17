@@ -2,6 +2,8 @@ package style
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -37,11 +39,20 @@ func Error(msg string) string {
 }
 
 func Backed(path string) string {
-	return Dim.Render(SymBackup) + " backed up " + Cyan.Render(path)
+	return Dim.Render(SymBackup) + " backed up " + Cyan.Render(ShortenPath(path))
 }
 
 func Restored(path string) string {
-	return Green.Render(SymRestore) + " restored " + Cyan.Render(path)
+	return Green.Render(SymRestore) + " restored " + Cyan.Render(ShortenPath(path))
+}
+
+// ShortenPath replaces the home directory with ~ for cleaner display.
+func ShortenPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	return strings.Replace(path, home, "~", 1)
 }
 
 func Banner() string {

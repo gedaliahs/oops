@@ -22,7 +22,7 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.4.6"
+var Version = "0.4.7"
 
 var versionFlag bool
 var upgradeFlag bool
@@ -149,7 +149,7 @@ func runUndo(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
 	}
 
-	fmt.Println(style.Success(fmt.Sprintf("Undid: %s", entry.Desc)))
+	fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 	for _, f := range restored {
 		fmt.Println(style.Restored(f))
 	}
@@ -179,7 +179,7 @@ func undoGit(entry journal.Entry) error {
 		if err := journal.MarkUndone(entry.ID); err != nil {
 			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
 		}
-		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", entry.Desc)))
+		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 		fmt.Println(style.Green.Render("  Applied stash: ") + stashRef)
 
 	case "log-branch":
@@ -194,7 +194,7 @@ func undoGit(entry journal.Entry) error {
 		if err := journal.MarkUndone(entry.ID); err != nil {
 			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
 		}
-		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", entry.Desc)))
+		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 		fmt.Println(style.Green.Render("  Restored branch: ") + branchName + " at " + entry.GitSHA[:8])
 
 	default:

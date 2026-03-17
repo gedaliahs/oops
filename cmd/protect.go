@@ -52,9 +52,9 @@ func doProtect(command string) error {
 		}
 
 		if shouldConfirm {
-			fmt.Fprintf(os.Stderr, "OOPS_CONFIRM:%s\n", p.Desc)
+			fmt.Fprintf(os.Stderr, "OOPS_CONFIRM:%s\n", style.ShortenPath(p.Desc))
 		} else if p.Risk == detect.RiskHigh && cfg.RiskWarning {
-			fmt.Fprintln(os.Stderr, style.Warning(p.Desc))
+			fmt.Fprintln(os.Stderr, style.Warning(style.ShortenPath(p.Desc)))
 		}
 
 		id := journal.GenerateID()

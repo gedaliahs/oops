@@ -39,7 +39,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		num := fmt.Sprintf("[%d]", i+1)
 		ts := style.Dim.Render(e.Timestamp)
 		risk := formatRisk(e.Risk)
-		desc := e.Desc
+		desc := style.ShortenPath(e.Desc)
 
 		undone := ""
 		if e.Undone {
@@ -49,7 +49,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s %s %s %s%s\n", style.Bold.Render(num), ts, risk, desc, undone)
 		if len(e.Files) > 0 {
 			for _, f := range e.Files {
-				fmt.Printf("    %s\n", style.Cyan.Render(f))
+				fmt.Printf("    %s\n", style.Cyan.Render(style.ShortenPath(f)))
 			}
 		}
 	}
