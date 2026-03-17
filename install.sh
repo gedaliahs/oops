@@ -121,6 +121,23 @@ case "$SHELL_NAME" in
 esac
 
 if [ -n "$RC_FILE" ]; then
+  # Migrate: remove hook from old locations if it exists elsewhere
+  OLD_FILES=""
+  case "$SHELL_NAME" in
+    zsh)  OLD_FILES="$HOME/.zshrc" ;;
+    bash) OLD_FILES="$HOME/.bash_profile" ;;
+  esac
+
+  if [ -n "$OLD_FILES" ] && [ "$OLD_FILES" != "$RC_FILE" ]; then
+    for old in $OLD_FILES; do
+      if [ -f "$old" ] && grep -q "oops init" "$old" 2>/dev/null; then
+        # Remove from old file
+        grep -v "oops init" "$old" > "$old.tmp" && mv "$old.tmp" "$old"
+        info "Migrated hook from ${old}"
+      fi
+    done
+  fi
+
   if [ -f "$RC_FILE" ] && grep -q "oops init" "$RC_FILE" 2>/dev/null; then
     ok "Shell hook already in ${RC_FILE}"
   else
