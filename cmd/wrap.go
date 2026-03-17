@@ -12,115 +12,185 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var agentModeCmd = &cobra.Command{
+	Use:   "agent-mode",
+	Short: "Toggle AI agent protection (catches commands from Claude Code, Cursor, etc.)",
+	RunE:  runAgentMode,
+}
+
+// Keep hidden aliases for internal use
 var wrapCmd = &cobra.Command{
 	Use:    "wrap",
-	Short:  "Install PATH wrappers to catch all destructive commands (including from AI agents)",
 	Hidden: true,
-	RunE:   runWrap,
+	RunE:   func(cmd *cobra.Command, args []string) error { return enableAgentMode() },
 }
 
 var unwrapCmd = &cobra.Command{
 	Use:    "unwrap",
-	Short:  "Remove PATH wrappers",
 	Hidden: true,
-	RunE:   runUnwrap,
+	RunE:   func(cmd *cobra.Command, args []string) error { return disableAgentMode() },
+}
+
+var agentOnCmd = &cobra.Command{
+	Use:   "on",
+	Short: "Enable agent protection",
+	RunE:  func(cmd *cobra.Command, args []string) error { return enableAgentMode() },
+}
+
+var agentOffCmd = &cobra.Command{
+	Use:   "off",
+	Short: "Disable agent protection",
+	RunE:  func(cmd *cobra.Command, args []string) error { return disableAgentMode() },
 }
 
 func init() {
+	agentModeCmd.AddCommand(agentOnCmd)
+	agentModeCmd.AddCommand(agentOffCmd)
+	rootCmd.AddCommand(agentModeCmd)
 	rootCmd.AddCommand(wrapCmd)
 	rootCmd.AddCommand(unwrapCmd)
 }
 
-var wrappedCommands = []struct {
-	name    string
-	realBin string
-}{
-	{"rm", ""},
-	{"mv", ""},
-	{"sed", ""},
-	{"chmod", ""},
-	{"chown", ""},
-	{"truncate", ""},
-	{"git", ""},
+var wrappedCommands = []string{
+	"rm", "mv", "sed", "chmod", "chown", "truncate", "git",
 }
 
 func wrapperDir() string {
 	return filepath.Join(config.OopsDir(), "bin")
 }
 
-func runWrap(cmd *cobra.Command, args []string) error {
+func isAgentModeOn() bool {
+	dir := wrapperDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	return len(entries) > 0
+}
+
+func runAgentMode(cmd *cobra.Command, args []string) error {
+	if isAgentModeOn() {
+		fmt.Println(style.Success("Agent mode is " + style.Bold.Render("on")))
+		fmt.Println()
+		fmt.Println(style.Dim.Render("  Commands from AI agents, scripts, and builds are"))
+		fmt.Println(style.Dim.Render("  intercepted via PATH wrappers in ~/.oops/bin"))
+		fmt.Println()
+		fmt.Printf("  Turn off? Run %s\n", style.Red.Render("oops agent-mode off"))
+		fmt.Println()
+	} else {
+		fmt.Println(style.Dim.Render("  Agent mode is " + style.Bold.Render("off")))
+		fmt.Println()
+		fmt.Println(style.Dim.Render("  Only your interactive terminal is protected."))
+		fmt.Println(style.Dim.Render("  AI agents (Claude Code, Cursor, Aider) and scripts"))
+		fmt.Println(style.Dim.Render("  can delete files without oops catching them."))
+		fmt.Println()
+		fmt.Printf("  Turn on? Run %s\n", style.Red.Render("oops agent-mode on"))
+		fmt.Println()
+	}
+	return nil
+}
+
+func enableAgentMode() error {
 	dir := wrapperDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	oopsBin, _ := os.Executable()
+	oopsBin, err := exec.LookPath("oops")
+	if err != nil {
+		oopsBin, _ = os.Executable()
+	}
 
-	for i, c := range wrappedCommands {
-		// Find the real binary
-		realBin, err := findRealBin(c.name, dir)
+	for _, name := range wrappedCommands {
+		realBin, err := findRealBin(name, dir)
 		if err != nil {
-			fmt.Println(style.Dim.Render("  skipping " + c.name + " (not found)"))
 			continue
 		}
-		wrappedCommands[i].realBin = realBin
 
-		wrapper := fmt.Sprintf(`#!/bin/sh
-%s protect -- "%s $*" 2>/dev/null
-%s "$@"
-`, oopsBin, c.name, realBin)
+		wrapper := fmt.Sprintf("#!/bin/sh\n%s protect -- \"%s $*\" 2>/dev/null\n%s \"$@\"\n", oopsBin, name, realBin)
 
-		wrapperPath := filepath.Join(dir, c.name)
-		if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
-			return fmt.Errorf("writing wrapper for %s: %w", c.name, err)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(wrapper), 0o755); err != nil {
+			return fmt.Errorf("writing wrapper for %s: %w", name, err)
 		}
-		fmt.Println(style.Success(c.name + " → " + realBin))
+		fmt.Println(style.Success(name + " → " + realBin))
 	}
 
-	// Check if wrapper dir is in PATH
-	pathDirs := strings.Split(os.Getenv("PATH"), ":")
-	inPath := false
-	for _, d := range pathDirs {
-		if d == dir {
-			inPath = true
-			break
+	// Add to PATH in shell config
+	home, _ := os.UserHomeDir()
+	pathLine := fmt.Sprintf("export PATH=\"%s:$PATH\"", dir)
+
+	rcFiles := []string{
+		filepath.Join(home, ".zshenv"),
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
+	}
+
+	for _, rc := range rcFiles {
+		if _, err := os.Stat(rc); err == nil {
+			data, _ := os.ReadFile(rc)
+			if !strings.Contains(string(data), ".oops/bin") {
+				f, err := os.OpenFile(rc, os.O_APPEND|os.O_WRONLY, 0o644)
+				if err == nil {
+					f.WriteString("\n" + pathLine + "\n")
+					f.Close()
+					fmt.Println(style.Success("Added ~/.oops/bin to PATH in " + rc))
+					break
+				}
+			}
 		}
 	}
 
-	if !inPath {
-		fmt.Println()
-		fmt.Println(style.Success("Wrappers installed to " + dir))
-		fmt.Println()
-		fmt.Println(style.Dim.Render("  PATH will be updated on next shell restart."))
-	} else {
-		fmt.Println()
-		fmt.Println(style.Success("Wrappers active"))
-	}
-
+	fmt.Println()
+	fmt.Println(style.Success("Agent mode " + style.Bold.Render("on")))
+	fmt.Println(style.Dim.Render("  Open a new terminal tab to activate."))
+	fmt.Println()
 	return nil
 }
 
-func runUnwrap(cmd *cobra.Command, args []string) error {
+func disableAgentMode() error {
 	dir := wrapperDir()
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		fmt.Println(style.Dim.Render("  No wrappers installed"))
-		return nil
-	}
 
+	// Remove wrappers
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
+	if err == nil {
+		for _, e := range entries {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
 	}
 
-	for _, e := range entries {
-		os.Remove(filepath.Join(dir, e.Name()))
-		fmt.Println(style.Success("Removed " + e.Name() + " wrapper"))
+	// Remove PATH line from rc files
+	home, _ := os.UserHomeDir()
+	rcFiles := []string{
+		filepath.Join(home, ".zshenv"),
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
 	}
 
+	for _, rc := range rcFiles {
+		data, err := os.ReadFile(rc)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), ".oops/bin") {
+			lines := strings.Split(string(data), "\n")
+			var filtered []string
+			for _, line := range lines {
+				if !strings.Contains(line, ".oops/bin") {
+					filtered = append(filtered, line)
+				}
+			}
+			os.WriteFile(rc, []byte(strings.Join(filtered, "\n")), 0o644)
+		}
+	}
+
+	fmt.Println(style.Success("Agent mode " + style.Bold.Render("off")))
+	fmt.Println(style.Dim.Render("  Open a new terminal tab to deactivate."))
+	fmt.Println()
 	return nil
 }
 
-// findRealBin finds the actual binary, skipping our wrapper dir
 func findRealBin(name, skipDir string) (string, error) {
 	pathDirs := strings.Split(os.Getenv("PATH"), ":")
 	for _, dir := range pathDirs {
@@ -132,7 +202,6 @@ func findRealBin(name, skipDir string) (string, error) {
 			return candidate, nil
 		}
 	}
-	// Fallback: use which
 	out, err := exec.Command("which", name).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s not found", name)

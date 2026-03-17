@@ -22,7 +22,7 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.4.0"
+var Version = "0.4.1"
 
 var versionFlag bool
 var upgradeFlag bool
@@ -55,6 +55,7 @@ func customHelp(cmd *cobra.Command, args []string) {
 	printCmd("oops config", "view or change settings")
 	printCmd("oops doctor", "check installation health")
 	printCmd("oops init <shell>", "print shell hook (zsh, bash, fish)")
+	printCmd("oops agent-mode", "toggle AI agent protection")
 	printCmd("oops tutorial", "interactive walkthrough")
 	printCmd("oops uninstall", "remove oops from your system")
 	fmt.Println()
@@ -71,9 +72,6 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println("    " + helpDim.Render("$") + " oops 2" + helpDim.Render("            # undo second-to-last"))
 	fmt.Println("    " + helpDim.Render("$") + " oops clean --all" + helpDim.Render("  # clear all backups"))
 	fmt.Println()
-	fmt.Println("  " + helpBold.Render("Protection"))
-	fmt.Println("    " + helpDesc.Render("Terminal commands  ") + helpDim.Render("shell hook (preexec)"))
-	fmt.Println("    " + helpDesc.Render("AI agents & scripts") + helpDim.Render("  PATH wrappers (~/.oops/bin)"))
 	fmt.Println()
 	fmt.Println("  " + helpDim.Render("https://oops-cli.com  ·  https://github.com/gedaliahs/oops"))
 	fmt.Println()
