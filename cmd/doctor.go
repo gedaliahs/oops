@@ -72,30 +72,37 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	home, _ := os.UserHomeDir()
 	hookFound := false
 
-	rcFiles := map[string]string{
-		"zsh":  filepath.Join(home, ".zshrc"),
-		"bash": filepath.Join(home, ".bashrc"),
-		"fish": filepath.Join(home, ".config", "fish", "config.fish"),
+	rcFiles := map[string][]string{
+		"zsh":  {filepath.Join(home, ".zshenv"), filepath.Join(home, ".zshrc")},
+		"bash": {filepath.Join(home, ".bashrc"), filepath.Join(home, ".bash_profile")},
+		"fish": {filepath.Join(home, ".config", "fish", "config.fish")},
 	}
 
-	if rcFile, exists := rcFiles[shellName]; exists {
-		if data, err := os.ReadFile(rcFile); err == nil {
-			if strings.Contains(string(data), "oops init") {
-				hookFound = true
-				fmt.Println(style.Success("Shell hook in " + rcFile))
-			}
-		}
-	}
-
-	if !hookFound {
-		// Check all rc files as fallback
-		for _, rcFile := range rcFiles {
+	if candidates, exists := rcFiles[shellName]; exists {
+		for _, rcFile := range candidates {
 			if data, err := os.ReadFile(rcFile); err == nil {
 				if strings.Contains(string(data), "oops init") {
 					hookFound = true
 					fmt.Println(style.Success("Shell hook in " + rcFile))
 					break
 				}
+			}
+		}
+	}
+
+	if !hookFound {
+		for _, candidates := range rcFiles {
+			for _, rcFile := range candidates {
+				if data, err := os.ReadFile(rcFile); err == nil {
+					if strings.Contains(string(data), "oops init") {
+						hookFound = true
+						fmt.Println(style.Success("Shell hook in " + rcFile))
+						break
+					}
+				}
+			}
+			if hookFound {
+				break
 			}
 		}
 	}

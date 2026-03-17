@@ -27,21 +27,18 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	// 1. Remove shell hook from rc file
 	home, _ := os.UserHomeDir()
-	shell := filepath.Base(os.Getenv("SHELL"))
 
-	rcFiles := map[string]string{
-		"zsh":  filepath.Join(home, ".zshrc"),
-		"bash": filepath.Join(home, ".bashrc"),
-		"fish": filepath.Join(home, ".config", "fish", "config.fish"),
+	// Check all possible rc files for the hook
+	rcFiles := []string{
+		filepath.Join(home, ".zshenv"),
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
+		filepath.Join(home, ".config", "fish", "config.fish"),
 	}
 
-	rcFile := rcFiles[shell]
-	if rcFile == "" {
-		for _, f := range rcFiles {
-			removeHookFromFile(f)
-		}
-	} else {
-		removeHookFromFile(rcFile)
+	for _, f := range rcFiles {
+		removeHookFromFile(f)
 	}
 
 	// 2. Remove ~/.oops directory

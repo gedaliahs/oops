@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${OOPS_BASE_URL:-https://oops-cli.com/releases}"
-VERSION="0.3.2"
+VERSION="0.3.3"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Colors
@@ -100,7 +100,9 @@ RC_FILE=""
 case "$SHELL_NAME" in
   zsh)
     HOOK_LINE='eval "$(oops init zsh)"'
-    RC_FILE="$HOME/.zshrc"
+    # .zshenv loads for ALL zsh invocations (including AI agents, scripts, subshells)
+    # .zshrc only loads for interactive shells
+    RC_FILE="$HOME/.zshenv"
     ;;
   bash)
     HOOK_LINE='eval "$(oops init bash)"'

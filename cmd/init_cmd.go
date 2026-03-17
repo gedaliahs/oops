@@ -12,7 +12,7 @@ import (
 var initCmd = &cobra.Command{
 	Use:       "init <shell>",
 	Short:     "Print the shell hook for your shell (zsh, bash, fish)",
-	Long:      "Print the shell hook to stdout. Add `eval \"$(oops init zsh)\"` to your .zshrc.",
+	Long:      "Print the shell hook to stdout. Add `eval \"$(oops init zsh)\"` to your .zshenv.",
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{"zsh", "bash", "fish"},
 	RunE:      runInit,
