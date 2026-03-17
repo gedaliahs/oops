@@ -24,14 +24,26 @@ fi
 
 echo ""
 if $UPGRADE; then
-  if [ "$CURRENT" = "$VERSION" ]; then
+  # Check if hook needs migrating even if version is current
+  NEEDS_MIGRATE=false
+  SHELL_NAME=$(basename "${SHELL:-zsh}")
+  if [ "$SHELL_NAME" = "zsh" ] && [ -f "$HOME/.zshrc" ] && grep -q "oops init" "$HOME/.zshrc" 2>/dev/null && ! grep -q "oops init" "$HOME/.zshenv" 2>/dev/null; then
+    NEEDS_MIGRATE=true
+  fi
+
+  if [ "$CURRENT" = "$VERSION" ] && ! $NEEDS_MIGRATE; then
     echo -e "${R}  oops${N} ${D}v${VERSION}${N}"
     echo ""
     echo -e "  ${G}Already on the latest version.${N}"
     echo ""
     exit 0
   fi
-  echo -e "${R}  oops${N} upgrading ${D}v${CURRENT}${N} → ${D}v${VERSION}${N}"
+
+  if [ "$CURRENT" = "$VERSION" ] && $NEEDS_MIGRATE; then
+    echo -e "${R}  oops${N} ${D}v${VERSION}${N} — migrating shell hook"
+  else
+    echo -e "${R}  oops${N} upgrading ${D}v${CURRENT}${N} → ${D}v${VERSION}${N}"
+  fi
 else
   echo -e "${R}  oops${N} installer ${D}v${VERSION}${N}"
   echo -e "${D}  undo for your terminal${N}"
