@@ -173,7 +173,11 @@ fi
 
 # ── Install PATH wrappers ───────────────────────────
 
-info "Setting up command wrappers..."
+echo ""
+echo -e "  ${B}Agent protection${N}"
+echo -e "  ${D}Wrapping destructive commands so oops catches them${N}"
+echo -e "  ${D}everywhere — your terminal, AI agents, scripts.${N}"
+echo ""
 "$INSTALL_DIR/oops" wrap 2>&1
 
 # Add ~/.oops/bin to PATH if not already there
@@ -183,19 +187,23 @@ PATH_LINE="export PATH=\"$OOPS_BIN_DIR:\$PATH\""
 if [ -n "$RC_FILE" ]; then
   if ! grep -q ".oops/bin" "$RC_FILE" 2>/dev/null; then
     echo "$PATH_LINE" >> "$RC_FILE"
-    ok "Added ~/.oops/bin to PATH in ${RC_FILE}"
+    ok "Added ~/.oops/bin to PATH"
   fi
 fi
 
 # ── Done ─────────────────────────────────────────────
 
 echo ""
-if $UPGRADE; then
-  echo -e "  ${G}Upgraded to v${VERSION}.${N} Open a new terminal tab to activate."
-else
-  echo -e "  ${G}All set.${N} Open a new terminal tab to activate."
-  echo ""
-  echo -e "  Then try: ${D}\$${N} rm something.txt && ${R}oops${N}"
-  echo -e "  Or run:   ${D}\$${N} oops tutorial"
-fi
+echo -e "  ${G}All set.${N} Open a new terminal tab to activate."
 echo ""
+echo -e "  ${B}What's protected:${N}"
+echo -e "    ${D}Your terminal${N}      shell hook catches commands before they run"
+echo -e "    ${D}AI agents${N}          Claude Code, Cursor, Aider — all covered"
+echo -e "    ${D}Scripts & builds${N}   PATH wrappers catch rm, mv, git, etc."
+echo ""
+if ! $UPGRADE; then
+  echo -e "  ${B}Try it:${N}"
+  echo -e "    ${D}\$${N} rm something.txt && ${R}oops${N}"
+  echo -e "    ${D}\$${N} oops tutorial"
+  echo ""
+fi

@@ -71,6 +71,10 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println("    " + helpDim.Render("$") + " oops 2" + helpDim.Render("            # undo second-to-last"))
 	fmt.Println("    " + helpDim.Render("$") + " oops clean --all" + helpDim.Render("  # clear all backups"))
 	fmt.Println()
+	fmt.Println("  " + helpBold.Render("Protection"))
+	fmt.Println("    " + helpDesc.Render("Terminal commands  ") + helpDim.Render("shell hook (preexec)"))
+	fmt.Println("    " + helpDesc.Render("AI agents & scripts") + helpDim.Render("  PATH wrappers (~/.oops/bin)"))
+	fmt.Println()
 	fmt.Println("  " + helpDim.Render("https://oops-cli.com  ·  https://github.com/gedaliahs/oops"))
 	fmt.Println()
 }
