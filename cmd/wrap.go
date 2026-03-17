@@ -122,7 +122,7 @@ func enableAgentMode() error {
 			continue
 		}
 
-		wrapper := fmt.Sprintf("#!/bin/sh\n%s protect -- \"%s $*\" 2>/dev/null\n%s \"$@\"\n", oopsBin, name, realBin)
+		wrapper := fmt.Sprintf("#!/bin/sh\n%s protect -- \"%s $*\"\n%s \"$@\"\n", oopsBin, name, realBin)
 
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(wrapper), 0o755); err != nil {
 			return fmt.Errorf("writing wrapper for %s: %w", name, err)

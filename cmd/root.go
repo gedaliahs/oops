@@ -22,7 +22,7 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.4.5"
+var Version = "0.4.6"
 
 var versionFlag bool
 var upgradeFlag bool
