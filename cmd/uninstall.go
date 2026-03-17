@@ -39,9 +39,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	for _, f := range rcFiles {
 		removeHookFromFile(f)
+		removeLineFromFile(f, ".oops/bin")
 	}
 
-	// 2. Remove ~/.oops directory
+	// 2. Remove ~/.oops directory (includes wrappers)
 	oopsDir := config.OopsDir()
 	if _, err := os.Stat(oopsDir); err == nil {
 		os.RemoveAll(oopsDir)
@@ -90,4 +91,33 @@ func removeHookFromFile(path string) {
 
 	os.WriteFile(path, []byte(strings.Join(filtered, "\n")), 0o644)
 	fmt.Println(style.Success("Removed hook from " + path))
+}
+
+func removeLineFromFile(path, match string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var filtered []string
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, match) {
+			found = true
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	if !found {
+		return
+	}
+
+	for len(filtered) > 0 && filtered[len(filtered)-1] == "" {
+		filtered = filtered[:len(filtered)-1]
+	}
+	filtered = append(filtered, "")
+
+	os.WriteFile(path, []byte(strings.Join(filtered, "\n")), 0o644)
 }

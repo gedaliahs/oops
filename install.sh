@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${OOPS_BASE_URL:-https://oops-cli.com/releases}"
-VERSION="0.3.3"
+VERSION="0.4.0"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Colors
@@ -169,6 +169,22 @@ if [ ! -d "$HOME/.oops" ]; then
   ok "Created ~/.oops backup directory"
 else
   ok "~/.oops already exists"
+fi
+
+# ── Install PATH wrappers ───────────────────────────
+
+info "Setting up command wrappers..."
+"$INSTALL_DIR/oops" wrap 2>&1
+
+# Add ~/.oops/bin to PATH if not already there
+OOPS_BIN_DIR="$HOME/.oops/bin"
+PATH_LINE="export PATH=\"$OOPS_BIN_DIR:\$PATH\""
+
+if [ -n "$RC_FILE" ]; then
+  if ! grep -q ".oops/bin" "$RC_FILE" 2>/dev/null; then
+    echo "$PATH_LINE" >> "$RC_FILE"
+    ok "Added ~/.oops/bin to PATH in ${RC_FILE}"
+  fi
 fi
 
 # ── Done ─────────────────────────────────────────────
