@@ -97,6 +97,10 @@ func (p RestorePlan) HasConflicts() bool {
 // It copies data instead of hard-linking so overwrites and in-place edits cannot
 // mutate the backup through a shared inode.
 func Backup(id string, files []string) (string, []BackedUpFile, error) {
+	if err := config.EnsureDir(); err != nil {
+		return "", nil, fmt.Errorf("preparing trash dir: %w", err)
+	}
+
 	trashDir := filepath.Join(config.TrashDir(), id)
 	filesDir := filepath.Join(trashDir, "files")
 	if err := os.MkdirAll(filesDir, 0o755); err != nil {

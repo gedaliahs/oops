@@ -8,7 +8,7 @@ Undo for your terminal. A shell hook that backs up files before destructive comm
 curl -fsSL oops-cli.com/install.sh | bash
 ```
 
-The installer handles everything — discovers the latest GitHub Release, verifies checksums, verifies Sigstore signatures when `cosign` is available, adds the shell hook, offers a protection profile, and runs a quick restore self-test.
+The installer handles everything — discovers the latest GitHub Release, verifies checksums, verifies Sigstore signatures when `cosign` is available, adds the shell hook, offers an arrow-key protection profile picker, repairs local backup directory ownership when needed, and runs a quick restore self-test.
 
 Homebrew is available from the public tap:
 
@@ -76,6 +76,7 @@ $ oops
 | `oops config preset agent` | Apply a risk policy preset (`normal`, `agent`, `cautious`, `quiet`) |
 | `oops protect-path` | Add high-safety rules for important paths |
 | `oops doctor` | Check installation health |
+| `oops doctor --fix` | Repair common local permission problems |
 | `oops tutorial` | Interactive walkthrough |
 | `oops uninstall` | Remove oops from your system |
 | `oops --version` | Print version |

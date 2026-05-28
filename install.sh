@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_VERSION="0.5.1"
+DEFAULT_VERSION="0.5.2"
 REPO="gedaliahs/oops"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
@@ -301,35 +301,21 @@ if [ -n "$RC_FILE" ]; then
   fi
 fi
 
-# ── Create oops directory ────────────────────────────
-
-if [ ! -d "$HOME/.oops" ]; then
-  mkdir -p "$HOME/.oops/trash"
-  ok "Created ~/.oops backup directory"
-else
-  ok "~/.oops already exists"
-fi
-
 configure_profile() {
   local preset="${OOPS_INSTALL_PRESET:-}"
   if [ -z "$preset" ] && ! $UPGRADE && [ "${OOPS_SKIP_PROFILE_PROMPT:-}" != "1" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
     echo ""
     echo -e "  ${B}Choose a protection profile${N}"
-    echo -e "    ${G}1${N}) normal   ${D}default 2-hour retention, warnings on${N}"
-    echo -e "    ${G}2${N}) agent    ${D}confirm every protected command${N}"
-    echo -e "    ${G}3${N}) cautious ${D}24-hour retention, confirm high-risk commands${N}"
-    echo -e "    ${G}4${N}) quiet    ${D}minimal prompts and warnings${N}"
-    printf "  Select [1]: " > /dev/tty
-    local reply
-    read -r reply < /dev/tty || reply=""
-    case "$reply" in
-      2|agent) preset="agent" ;;
-      3|cautious) preset="cautious" ;;
-      4|quiet) preset="quiet" ;;
-      *) preset="normal" ;;
-    esac
+    echo -e "  ${D}Use up/down and Enter, or press 1-4.${N}"
+    preset="$(profile_menu)"
   fi
   preset="${preset:-normal}"
+  case "$preset" in
+    1) preset="normal" ;;
+    2) preset="quiet" ;;
+    3) preset="agent" ;;
+    4) preset="cautious" ;;
+  esac
   if [ "$preset" = "normal" ]; then
     ok "Profile: normal"
     return
@@ -339,6 +325,51 @@ configure_profile() {
   else
     warn "Could not apply profile: ${preset}"
   fi
+}
+
+profile_menu() {
+  local selected=0
+  local key=""
+  local names=("normal" "quiet" "agent" "cautious")
+  local descriptions=(
+    "2-hour retention, warnings on"
+    "2-hour retention, warnings off"
+    "6-hour retention, confirm every protected command"
+    "24-hour retention, confirm high-risk commands"
+  )
+
+  printf "\033[?25l" > /dev/tty
+  while true; do
+    for i in 0 1 2 3; do
+      if [ "$i" -eq "$selected" ]; then
+        printf "  \033[2K${G}> %d) %-8s${N} ${D}%s${N}\n" "$((i + 1))" "${names[$i]}" "${descriptions[$i]}" > /dev/tty
+      else
+        printf "  \033[2K  %d) %-8s ${D}%s${N}\n" "$((i + 1))" "${names[$i]}" "${descriptions[$i]}" > /dev/tty
+      fi
+    done
+
+    IFS= read -rsn1 key < /dev/tty || key=""
+    case "$key" in
+      "")
+        break
+        ;;
+      1|2|3|4)
+        selected=$((key - 1))
+        break
+        ;;
+      $'\x1b')
+        IFS= read -rsn2 key < /dev/tty || key=""
+        case "$key" in
+          "[A") selected=$(((selected + 3) % 4)) ;;
+          "[B") selected=$(((selected + 1) % 4)) ;;
+        esac
+        ;;
+    esac
+
+    printf "\033[4A" > /dev/tty
+  done
+  printf "\033[?25h" > /dev/tty
+  echo "${names[$selected]}"
 }
 
 maybe_install_cleanup_service() {
@@ -361,7 +392,38 @@ maybe_install_cleanup_service() {
   esac
 }
 
+ensure_oops_dir() {
+  local target_user="${SUDO_USER:-${USER:-}}"
+  if [ -z "$target_user" ]; then
+    target_user="$(id -un 2>/dev/null || true)"
+  fi
+
+  if [ ! -d "$HOME/.oops" ]; then
+    mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
+  else
+    mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
+  fi
+
+  if [ -w "$HOME/.oops" ] && [ -w "$HOME/.oops/trash" ]; then
+    ok "~/.oops backup directory is ready"
+    return
+  fi
+
+  warn "~/.oops exists but is not writable by ${target_user:-this user}"
+  if command -v sudo &>/dev/null && [ -n "$target_user" ]; then
+    info "Repairing ~/.oops ownership..."
+    sudo chown -R "$target_user" "$HOME/.oops" || err "could not repair ~/.oops permissions; run: sudo chown -R ${target_user} \"$HOME/.oops\""
+    chmod -R u+rwX "$HOME/.oops" 2>/dev/null || true
+    mkdir -p "$HOME/.oops/trash"
+    ok "Repaired ~/.oops permissions"
+    return
+  fi
+
+  err "could not prepare ~/.oops; run: sudo chown -R ${target_user:-$(id -un)} \"$HOME/.oops\""
+}
+
 section "5. Preferences"
+ensure_oops_dir
 configure_profile
 maybe_install_cleanup_service
 

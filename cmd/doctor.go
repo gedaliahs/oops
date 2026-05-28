@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -19,7 +20,10 @@ var doctorCmd = &cobra.Command{
 	RunE:  runDoctor,
 }
 
+var doctorFix bool
+
 func init() {
+	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Repair common local permission problems")
 	rootCmd.AddCommand(doctorCmd)
 }
 
@@ -43,6 +47,23 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		ok = false
 	} else {
 		fmt.Println(style.Success("~/.oops/trash directory exists"))
+	}
+
+	if err := config.CheckWritable(); err != nil {
+		if doctorFix {
+			if fixErr := fixOopsDirPermissions(); fixErr != nil {
+				fmt.Println(style.Error("Could not repair ~/.oops permissions: " + fixErr.Error()))
+				fmt.Println(style.Dim.Render("  Run: " + config.PermissionFixCommand()))
+				ok = false
+			} else {
+				fmt.Println(style.Success("Repaired ~/.oops permissions"))
+			}
+		} else {
+			fmt.Println(style.Error("~/.oops is not writable by this user"))
+			fmt.Println(style.Dim.Render("  Run: oops doctor --fix"))
+			fmt.Println(style.Dim.Render("  Or:  " + config.PermissionFixCommand()))
+			ok = false
+		}
 	}
 
 	// Check config
@@ -158,6 +179,28 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func fixOopsDirPermissions() error {
+	current, err := user.Current()
+	if err != nil {
+		return err
+	}
+	chown := exec.Command("sudo", "chown", "-R", current.Uid+":"+current.Gid, config.OopsDir())
+	chown.Stdout = os.Stdout
+	chown.Stderr = os.Stderr
+	chown.Stdin = os.Stdin
+	if err := chown.Run(); err != nil {
+		return err
+	}
+	chmod := exec.Command("chmod", "-R", "u+rwX", config.OopsDir())
+	chmod.Stdout = os.Stdout
+	chmod.Stderr = os.Stderr
+	chmod.Stdin = os.Stdin
+	if err := chmod.Run(); err != nil {
+		return err
+	}
+	return config.CheckWritable()
 }
 
 func fetchLatestVersion() (string, error) {

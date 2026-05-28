@@ -46,7 +46,11 @@ func runConfig(cmd *cobra.Command, args []string) error {
 
 	case 1:
 		if args[0] == "preset" {
-			fmt.Println("available presets: normal, agent, cautious, quiet")
+			fmt.Println("available presets:")
+			fmt.Println("  normal    2-hour retention, warnings on")
+			fmt.Println("  quiet     2-hour retention, warnings off")
+			fmt.Println("  agent     6-hour retention, confirm every protected command")
+			fmt.Println("  cautious  24-hour retention, confirm high-risk commands")
 			return nil
 		}
 		// Get value

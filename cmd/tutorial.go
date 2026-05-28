@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gedaliah/oops/internal/config"
+	"github.com/gedaliah/oops/internal/journal"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +36,10 @@ func pause() {
 }
 
 func runTutorial(cmd *cobra.Command, args []string) error {
+	if err := config.EnsureDir(); err != nil {
+		return fmt.Errorf("backup setup failed: %w\nrun `oops doctor --fix` to repair local permissions", err)
+	}
+
 	cwd, _ := os.Getwd()
 	testFile := filepath.Join(cwd, "oops-tutorial.txt")
 	content := "This is an important file.\nIt contains data you don't want to lose.\nCreated by oops tutorial at " + time.Now().Format("3:04 PM") + ".\n"
@@ -67,7 +73,11 @@ func runTutorial(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Run protect manually
+	beforeID := latestUndoID()
 	doProtect("rm " + testFile)
+	if latestUndoID() == beforeID {
+		return fmt.Errorf("oops could not create a tutorial backup; leaving %s in place\nrun `oops doctor --fix`, then try `oops tutorial` again", testFile)
+	}
 
 	// Actually delete it
 	os.Remove(testFile)
@@ -122,6 +132,14 @@ func runTutorial(cmd *cobra.Command, args []string) error {
 	os.Remove(testFile)
 
 	return nil
+}
+
+func latestUndoID() string {
+	entries, err := journal.Last(1)
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+	return entries[0].ID
 }
 
 func splitLines(s string) []string {

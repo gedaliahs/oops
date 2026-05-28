@@ -331,9 +331,49 @@ func (cfg Config) RetentionDuration() time.Duration {
 
 func EnsureDir() error {
 	if err := os.MkdirAll(OopsDir(), 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", OopsDir(), err)
+	}
+	if err := os.MkdirAll(TrashDir(), 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", TrashDir(), err)
+	}
+	return CheckWritable()
+}
+
+func CheckWritable() error {
+	for _, dir := range []string{OopsDir(), TrashDir()} {
+		if err := checkDirWritable(dir); err != nil {
+			return fmt.Errorf("%s is not writable: %w (fix: %s)", dir, err, PermissionFixCommand())
+		}
+	}
+	return nil
+}
+
+func PermissionFixCommand() string {
+	user := os.Getenv("SUDO_USER")
+	if user == "" || user == "root" {
+		user = os.Getenv("USER")
+	}
+	if user == "" {
+		user = "$(id -un)"
+	}
+	return "sudo chown -R " + shellQuote(user) + " " + shellQuote(OopsDir())
+}
+
+func checkDirWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".write-test-*")
+	if err != nil {
 		return err
 	}
-	return os.MkdirAll(TrashDir(), 0o755)
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func ShouldCleanup() bool {
