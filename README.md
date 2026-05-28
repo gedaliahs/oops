@@ -8,7 +8,13 @@ Undo for your terminal. A shell hook that backs up files before destructive comm
 curl -fsSL oops-cli.com/install.sh | bash
 ```
 
-The installer handles everything — downloads the binary, adds the shell hook to your shell config, and creates the backup directory.
+The installer handles everything — downloads the release archive from GitHub Releases, verifies its checksum, adds the shell hook to your shell config, and runs a quick restore self-test.
+
+Homebrew tap support is ready under `packaging/homebrew/oops.rb`; publish that formula to `gedaliahs/homebrew-tap` to enable:
+
+```
+brew install gedaliahs/tap/oops
+```
 
 ## Usage
 
@@ -29,20 +35,29 @@ $ oops
 |---|---|---|
 | `rm` / `rm -rf` | Copies files to trash | restore |
 | `mv a b` | Backs up overwrite target | restore b |
+| `cp a b` | Backs up overwrite target | restore b |
 | `> file.txt` | Snapshots before redirect | restore |
 | `sed -i` | Copies before in-place edit | restore |
+| `perl -pi` | Copies before in-place edit | restore |
 | `chmod` / `chown` | Records permissions | restore |
 | `git reset --hard` | Creates stash | stash apply |
 | `git checkout .` | Creates stash | stash apply |
+| `git restore .` / `git switch -f` | Creates stash | stash apply |
 | `git branch -D` | Logs SHA | recreate |
 | `git clean -fd` | Stashes untracked files | stash apply |
+| `find ... -delete` | Backs up search roots | restore |
+| `rsync --delete` | Backs up destination | restore |
+| `dd of=...` | Backs up output file | restore |
 
 ## Commands
 
 | Command | Description |
 |---|---|
 | `oops` | Undo last action (pass a number to go further back) |
+| `oops show` | Preview what would be restored |
 | `oops log` | Show undo history |
+| `oops keep` | Keep a backup from automatic cleanup |
+| `oops unkeep` | Allow a kept backup to be cleaned up |
 | `oops size` | Show backup disk usage |
 | `oops clean` | Remove old backups (`--all` for everything) |
 | `oops config` | View or change settings |

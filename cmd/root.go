@@ -22,7 +22,7 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.4.8"
+var Version = "0.4.9"
 
 var versionFlag bool
 var upgradeFlag bool
@@ -50,6 +50,8 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("  " + helpBold.Render("Commands"))
 	printCmd("oops log", "show undo history")
+	printCmd("oops show", "preview an undo")
+	printCmd("oops keep", "keep a backup from cleanup")
 	printCmd("oops size", "show backup disk usage")
 	printCmd("oops clean", "remove old backups")
 	printCmd("oops config", "view or change settings")

@@ -33,9 +33,13 @@ func Run(cfg config.Config) (removedEntries int, freedBytes int64) {
 
 	entries, _ := journal.ReadAll()
 	activeTrash := make(map[string]bool)
+	pinnedTrash := make(map[string]bool)
 	for _, e := range entries {
 		if e.TrashDir != "" {
 			activeTrash[e.TrashDir] = true
+			if e.Pinned {
+				pinnedTrash[e.TrashDir] = true
+			}
 		}
 	}
 
@@ -54,6 +58,9 @@ func Run(cfg config.Config) (removedEntries int, freedBytes int64) {
 		dirs, _ = trash.ListTrashDirs()
 		// dirs are newest first, so remove from the end
 		for i := len(dirs) - 1; i >= 0 && total > cfg.MaxTrashBytes; i-- {
+			if pinnedTrash[dirs[i]] {
+				continue
+			}
 			size := trash.Size(dirs[i])
 			if err := trash.Remove(dirs[i]); err == nil {
 				freedBytes += size

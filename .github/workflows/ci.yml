@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run tests
+        run: go test -race ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Build release assets
+        run: scripts/build-release.sh "${GITHUB_SHA::8}"
+
+      - name: Installer smoke test
+        run: |
+          install_dir=$(mktemp -d)
+          home_dir=$(mktemp -d)
+          dist_dir=$(mktemp -d)
+          cp dist/* "$dist_dir/"
+          HOME="$home_dir" INSTALL_DIR="$install_dir" OOPS_BASE_URL="file://$dist_dir" OOPS_SKIP_SELF_TEST=0 bash install.sh
+          "$install_dir/oops" --version

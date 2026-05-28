@@ -23,6 +23,7 @@ type Entry struct {
 	Desc      string `json:"desc"`
 	CWD       string `json:"cwd"`
 	Undone    bool   `json:"undone,omitempty"`
+	Pinned    bool   `json:"pinned,omitempty"`
 
 	// Git-specific
 	GitAction string `json:"git_action,omitempty"`
@@ -112,6 +113,19 @@ func Last(n int) ([]Entry, error) {
 
 // MarkUndone marks an entry as undone by ID.
 func MarkUndone(id string) error {
+	return updateEntry(id, func(entry *Entry) {
+		entry.Undone = true
+	})
+}
+
+// MarkPinned marks an entry as pinned or unpinned by ID.
+func MarkPinned(id string, pinned bool) error {
+	return updateEntry(id, func(entry *Entry) {
+		entry.Pinned = pinned
+	})
+}
+
+func updateEntry(id string, update func(*Entry)) error {
 	lock := flock.New(config.JournalPath() + ".lock")
 	if err := lock.Lock(); err != nil {
 		return fmt.Errorf("acquiring journal lock: %w", err)
@@ -126,7 +140,7 @@ func MarkUndone(id string) error {
 	found := false
 	for i := range all {
 		if all[i].ID == id {
-			all[i].Undone = true
+			update(&all[i])
 			found = true
 		}
 	}
@@ -137,7 +151,7 @@ func MarkUndone(id string) error {
 	return writeAll(all)
 }
 
-// DeleteBefore removes entries older than the given time.
+// DeleteBefore removes unpinned entries older than the given time.
 func DeleteBefore(t time.Time) (int, error) {
 	lock := flock.New(config.JournalPath() + ".lock")
 	if err := lock.Lock(); err != nil {
@@ -154,7 +168,7 @@ func DeleteBefore(t time.Time) (int, error) {
 	removed := 0
 	cutoff := t.Format(time.RFC3339)
 	for _, e := range all {
-		if e.Timestamp < cutoff {
+		if !e.Pinned && e.Timestamp < cutoff {
 			removed++
 		} else {
 			kept = append(kept, e)

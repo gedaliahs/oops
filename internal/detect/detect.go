@@ -58,14 +58,24 @@ func analyzeSimple(tokens []string) *Protection {
 		return ParseRM(args)
 	case "mv":
 		return ParseMV(args)
+	case "cp":
+		return ParseCP(args)
 	case "sed", "gsed":
 		return ParseSed(args)
+	case "perl":
+		return ParsePerl(args)
 	case "chmod":
 		return ParseChmod(args)
 	case "chown":
 		return ParseChown(args)
 	case "truncate", "gtruncate":
 		return ParseTruncate(args)
+	case "dd":
+		return ParseDD(args)
+	case "find":
+		return ParseFind(args)
+	case "rsync":
+		return ParseRsync(args)
 	case "git":
 		return ParseGit(args)
 	case "sudo":
@@ -137,8 +147,8 @@ func basename(path string) string {
 // It returns the list of command names that matched.
 func QuickMatch(command string) []string {
 	destructive := []string{
-		"rm", "mv", "sed", "gsed", "chmod", "chown", "truncate", "gtruncate",
-		"git", "dd", "shred",
+		"rm", "mv", "cp", "sed", "gsed", "perl", "chmod", "chown", "truncate", "gtruncate",
+		"git", "dd", "find", "rsync", "shred",
 	}
 
 	var matches []string

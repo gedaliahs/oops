@@ -87,3 +87,48 @@ func TestPurgeSucceedsWithoutJournal(t *testing.T) {
 		t.Fatalf("expected trash dir to be recreated: %v", err)
 	}
 }
+
+func TestRunDoesNotPrunePinnedTrashForSizeLimit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	pinnedTrash := filepath.Join(config.TrashDir(), "pinned")
+	oldTrash := filepath.Join(config.TrashDir(), "old")
+	if err := os.MkdirAll(pinnedTrash, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(oldTrash, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pinnedTrash, "pinned.txt"), []byte("pinned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldTrash, "old.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	if err := journal.Append(journal.Entry{
+		ID:        "pinned",
+		Timestamp: now.Format(time.RFC3339),
+		TrashDir:  pinnedTrash,
+		Pinned:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(journal.Entry{
+		ID:        "old",
+		Timestamp: now.Format(time.RFC3339),
+		TrashDir:  oldTrash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	Run(config.Config{RetentionHours: 24, MaxTrashBytes: 1})
+
+	if _, err := os.Stat(pinnedTrash); err != nil {
+		t.Fatalf("expected pinned trash to remain: %v", err)
+	}
+	if _, err := os.Stat(oldTrash); !os.IsNotExist(err) {
+		t.Fatalf("expected unpinned trash to be pruned, stat err=%v", err)
+	}
+}

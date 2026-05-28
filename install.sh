@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${OOPS_BASE_URL:-https://oops-cli.com/releases}"
-VERSION="0.4.8"
+VERSION="0.4.9"
+BASE_URL="${OOPS_BASE_URL:-https://github.com/gedaliahs/oops/releases/download/v${VERSION}}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Colors
@@ -77,20 +77,47 @@ info "Detected ${B}${OS}/${ARCH}${N}"
 
 # ── Download and install binary ──────────────────────
 
-URL="${BASE_URL}/oops_${OS}_${ARCH}.tar.gz"
+ARCHIVE="oops_${OS}_${ARCH}.tar.gz"
+URL="${BASE_URL}/${ARCHIVE}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 info "Downloading..."
 if command -v curl &>/dev/null; then
-  curl -fsSL "$URL" -o "$TMP/oops.tar.gz"
+  curl -fsSL "$URL" -o "$TMP/$ARCHIVE"
 elif command -v wget &>/dev/null; then
-  wget -qO "$TMP/oops.tar.gz" "$URL"
+  wget -qO "$TMP/$ARCHIVE" "$URL"
 else
   err "curl or wget required"
 fi
 
-tar -xzf "$TMP/oops.tar.gz" -C "$TMP"
+verify_checksum() {
+  if [ "${OOPS_SKIP_CHECKSUM:-}" = "1" ]; then
+    info "Skipping checksum verification"
+    return
+  fi
+
+  info "Verifying checksum..."
+  if command -v curl &>/dev/null; then
+    curl -fsSL "${BASE_URL}/SHA256SUMS" -o "$TMP/SHA256SUMS"
+  elif command -v wget &>/dev/null; then
+    wget -qO "$TMP/SHA256SUMS" "${BASE_URL}/SHA256SUMS"
+  else
+    err "curl or wget required"
+  fi
+
+  grep "  ${ARCHIVE}$" "$TMP/SHA256SUMS" > "$TMP/SHA256SUM"
+  if command -v shasum &>/dev/null; then
+    (cd "$TMP" && shasum -a 256 -c SHA256SUM >/dev/null)
+  elif command -v sha256sum &>/dev/null; then
+    (cd "$TMP" && sha256sum -c SHA256SUM >/dev/null)
+  else
+    err "shasum or sha256sum required for verification"
+  fi
+}
+
+verify_checksum
+tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
 
 mkdir -p "$INSTALL_DIR" 2>/dev/null || true
 if [ -w "$INSTALL_DIR" ]; then
@@ -102,6 +129,28 @@ else
 fi
 chmod +x "$INSTALL_DIR/oops"
 ok "Installed binary to ${INSTALL_DIR}/oops"
+
+run_self_test() {
+  if [ "${OOPS_SKIP_SELF_TEST:-}" = "1" ]; then
+    return
+  fi
+
+  info "Running self-test..."
+  local test_home="$TMP/self-test-home"
+  local test_work="$TMP/self-test-work"
+  local test_file="$test_work/victim.txt"
+  mkdir -p "$test_home" "$test_work"
+  printf "oops self-test\n" > "$test_file"
+  HOME="$test_home" "$INSTALL_DIR/oops" protect -- rm "$test_file" >/dev/null 2>&1
+  rm "$test_file"
+  HOME="$test_home" "$INSTALL_DIR/oops" >/dev/null 2>&1
+  if [ "$(cat "$test_file" 2>/dev/null)" != "oops self-test" ]; then
+    err "self-test failed"
+  fi
+  ok "Self-test passed"
+}
+
+run_self_test
 
 # ── Add shell hook ───────────────────────────────────
 

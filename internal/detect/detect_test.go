@@ -67,6 +67,22 @@ func TestAnalyze_MV_NoOverwrite(t *testing.T) {
 	}
 }
 
+func TestAnalyze_CP_Overwrite(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "src.txt")
+	dst := filepath.Join(tmp, "dst.txt")
+	os.WriteFile(src, []byte("new"), 0o644)
+	os.WriteFile(dst, []byte("old"), 0o644)
+
+	prots := Analyze("cp " + src + " " + dst)
+	if len(prots) == 0 {
+		t.Fatal("expected protection for cp overwrite")
+	}
+	if prots[0].Action != ActionCP {
+		t.Errorf("expected ActionCP, got %s", prots[0].Action)
+	}
+}
+
 func TestAnalyze_SedInPlace(t *testing.T) {
 	tmp := t.TempDir()
 	f := filepath.Join(tmp, "test.txt")
@@ -105,6 +121,48 @@ func TestAnalyze_GitResetHard(t *testing.T) {
 	}
 	if prots[0].Risk != RiskHigh {
 		t.Errorf("expected RiskHigh, got %s", prots[0].Risk)
+	}
+}
+
+func TestAnalyze_GitRestoreAndForceSwitch(t *testing.T) {
+	cases := []string{
+		"git restore .",
+		"git checkout -f main",
+		"git switch --discard-changes main",
+	}
+	for _, c := range cases {
+		prots := Analyze(c)
+		if len(prots) == 0 {
+			t.Fatalf("expected protection for %q", c)
+		}
+		if prots[0].GitAction != "stash" {
+			t.Errorf("expected stash action for %q, got %s", c, prots[0].GitAction)
+		}
+	}
+}
+
+func TestAnalyze_AdditionalDestructiveCommands(t *testing.T) {
+	tmp := t.TempDir()
+	file := filepath.Join(tmp, "file.txt")
+	dest := filepath.Join(tmp, "dest")
+	os.WriteFile(file, []byte("data"), 0o644)
+	os.MkdirAll(dest, 0o755)
+
+	cases := map[string]ActionType{
+		"dd if=/dev/zero of=" + file:             ActionDD,
+		"find " + tmp + " -name '*.tmp' -delete": ActionFind,
+		"rsync -a --delete source/ " + dest:      ActionRsync,
+		"perl -pi -e 's/a/b/' " + file:           ActionPerl,
+		"perl -i.bak -pe 's/a/b/' " + file:       ActionPerl,
+	}
+	for command, action := range cases {
+		prots := Analyze(command)
+		if len(prots) == 0 {
+			t.Fatalf("expected protection for %q", command)
+		}
+		if prots[0].Action != action {
+			t.Fatalf("expected %s for %q, got %s", action, command, prots[0].Action)
+		}
 	}
 }
 

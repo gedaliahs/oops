@@ -41,6 +41,11 @@ const (
 	ActionTruncate ActionType = "truncate"
 	ActionGit      ActionType = "git"
 	ActionRedirect ActionType = "redirect"
+	ActionCP       ActionType = "cp"
+	ActionDD       ActionType = "dd"
+	ActionFind     ActionType = "find"
+	ActionRsync    ActionType = "rsync"
+	ActionPerl     ActionType = "perl"
 )
 
 // Protection describes what needs to be backed up and how risky it is.
@@ -53,6 +58,182 @@ type Protection struct {
 	// Git-specific fields
 	GitAction string // "stash", "log-branch"
 	GitRef    string // Branch name or ref
+}
+
+// ParseCP analyzes a cp command and returns a Protection if the target exists.
+func ParseCP(args []string) *Protection {
+	var paths []string
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			paths = append(paths, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			if a == "-t" || a == "--target-directory" {
+				i++
+			}
+			continue
+		}
+		paths = append(paths, a)
+	}
+
+	if len(paths) < 2 {
+		return nil
+	}
+
+	dest := resolvePath(paths[len(paths)-1])
+	info, err := os.Lstat(dest)
+	if err != nil {
+		return nil
+	}
+
+	var toBackup []string
+	if info.IsDir() {
+		for _, src := range paths[:len(paths)-1] {
+			target := filepath.Join(dest, filepath.Base(src))
+			if _, err := os.Lstat(target); err == nil {
+				toBackup = append(toBackup, target)
+			}
+		}
+	} else {
+		toBackup = []string{dest}
+	}
+	if len(toBackup) == 0 {
+		return nil
+	}
+
+	return &Protection{
+		Action: ActionCP,
+		Risk:   RiskMedium,
+		Files:  toBackup,
+		Desc:   "cp overwrite " + strings.Join(paths, " "),
+	}
+}
+
+// ParseDD analyzes dd for output file overwrites.
+func ParseDD(args []string) *Protection {
+	for _, a := range args {
+		if strings.HasPrefix(a, "of=") {
+			target := strings.TrimPrefix(a, "of=")
+			resolved := resolvePath(target)
+			if _, err := os.Lstat(resolved); err != nil {
+				return nil
+			}
+			return &Protection{
+				Action: ActionDD,
+				Risk:   RiskHigh,
+				Files:  []string{resolved},
+				Desc:   "dd of=" + target,
+			}
+		}
+	}
+	return nil
+}
+
+// ParseFind analyzes find commands that delete matching paths.
+func ParseFind(args []string) *Protection {
+	hasDelete := false
+	for _, a := range args {
+		if a == "-delete" {
+			hasDelete = true
+			break
+		}
+	}
+	if !hasDelete {
+		return nil
+	}
+
+	var roots []string
+	for _, a := range args {
+		if a == "" || strings.HasPrefix(a, "-") || a == "(" || a == ")" || a == "!" {
+			break
+		}
+		roots = append(roots, a)
+	}
+	if len(roots) == 0 {
+		roots = []string{"."}
+	}
+
+	resolved := resolvePaths(roots)
+	if len(resolved) == 0 {
+		return nil
+	}
+	return &Protection{
+		Action: ActionFind,
+		Risk:   RiskHigh,
+		Files:  resolved,
+		Desc:   "find " + strings.Join(args, " "),
+	}
+}
+
+// ParseRsync analyzes rsync commands that delete destination files.
+func ParseRsync(args []string) *Protection {
+	hasDelete := false
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--delete" || strings.HasPrefix(a, "--delete-") {
+			hasDelete = true
+			continue
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			continue
+		}
+		paths = append(paths, a)
+	}
+	if !hasDelete || len(paths) < 2 {
+		return nil
+	}
+
+	dest := resolvePath(paths[len(paths)-1])
+	if _, err := os.Lstat(dest); err != nil {
+		return nil
+	}
+	return &Protection{
+		Action: ActionRsync,
+		Risk:   RiskHigh,
+		Files:  []string{dest},
+		Desc:   "rsync " + strings.Join(args, " "),
+	}
+}
+
+// ParsePerl analyzes perl in-place edits.
+func ParsePerl(args []string) *Protection {
+	inPlace := false
+	var files []string
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-e" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			if strings.Contains(a, "i") {
+				inPlace = true
+			}
+			continue
+		}
+		if inPlace {
+			files = append(files, a)
+		}
+	}
+
+	if !inPlace || len(files) == 0 {
+		return nil
+	}
+	resolved := resolvePaths(files)
+	if len(resolved) == 0 {
+		return nil
+	}
+	return &Protection{
+		Action: ActionPerl,
+		Risk:   RiskMedium,
+		Files:  resolved,
+		Desc:   "perl -pi " + strings.Join(files, " "),
+	}
 }
 
 // ParseRM analyzes an rm command and returns a Protection.
@@ -366,6 +547,10 @@ func ParseGit(args []string) *Protection {
 		return parseGitReset(rest)
 	case "checkout":
 		return parseGitCheckout(rest)
+	case "restore":
+		return parseGitRestore(rest)
+	case "switch":
+		return parseGitSwitch(rest)
 	case "clean":
 		return parseGitClean(rest)
 	case "branch":
@@ -394,6 +579,16 @@ func parseGitReset(args []string) *Protection {
 }
 
 func parseGitCheckout(args []string) *Protection {
+	for _, a := range args {
+		if a == "-f" || a == "--force" {
+			return &Protection{
+				Action:    ActionGit,
+				Risk:      RiskHigh,
+				GitAction: "stash",
+				Desc:      "git checkout --force",
+			}
+		}
+	}
 	// Detect: git checkout . or git checkout -- <files>
 	for _, a := range args {
 		if a == "." {
@@ -425,6 +620,48 @@ func parseGitCheckout(args []string) *Protection {
 			GitAction: "stash",
 			Files:     resolved,
 			Desc:      "git checkout -- " + strings.Join(files, " "),
+		}
+	}
+	return nil
+}
+
+func parseGitRestore(args []string) *Protection {
+	var files []string
+	for _, a := range args {
+		if a == "." {
+			return &Protection{
+				Action:    ActionGit,
+				Risk:      RiskHigh,
+				GitAction: "stash",
+				Desc:      "git restore .",
+			}
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		files = append(files, a)
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	return &Protection{
+		Action:    ActionGit,
+		Risk:      RiskMedium,
+		GitAction: "stash",
+		Files:     resolvePaths(files),
+		Desc:      "git restore " + strings.Join(files, " "),
+	}
+}
+
+func parseGitSwitch(args []string) *Protection {
+	for _, a := range args {
+		if a == "-f" || a == "--force" || a == "--discard-changes" {
+			return &Protection{
+				Action:    ActionGit,
+				Risk:      RiskHigh,
+				GitAction: "stash",
+				Desc:      "git switch --force",
+			}
 		}
 	}
 	return nil
