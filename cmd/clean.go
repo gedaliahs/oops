@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	cleanAll  bool
-	cleanDays int
+	cleanAll   bool
+	cleanHours int
+	cleanDays  int
 )
 
 var cleanCmd = &cobra.Command{
@@ -23,7 +24,9 @@ var cleanCmd = &cobra.Command{
 
 func init() {
 	cleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Remove all backups")
+	cleanCmd.Flags().IntVar(&cleanHours, "older-than-hours", 0, "Remove entries older than N hours")
 	cleanCmd.Flags().IntVar(&cleanDays, "older-than", 0, "Remove entries older than N days")
+	_ = cleanCmd.Flags().MarkDeprecated("older-than", "use --older-than-hours")
 	rootCmd.AddCommand(cleanCmd)
 }
 
@@ -36,13 +39,24 @@ func runClean(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	days := cleanDays
-	if days == 0 {
-		cfg := config.Load()
-		days = cfg.RetentionDays
+	if cleanHours < 0 {
+		return fmt.Errorf("--older-than-hours must be positive")
+	}
+	if cleanDays < 0 {
+		return fmt.Errorf("--older-than must be positive")
+	}
+	if cleanHours > 0 && cleanDays > 0 {
+		return fmt.Errorf("use only one of --older-than-hours or --older-than")
 	}
 
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	retention := config.Load().RetentionDuration()
+	if cleanHours > 0 {
+		retention = time.Duration(cleanHours) * time.Hour
+	} else if cleanDays > 0 {
+		retention = time.Duration(cleanDays) * 24 * time.Hour
+	}
+
+	cutoff := time.Now().Add(-retention)
 	removed, freed, err := cleanup.PurgeBefore(cutoff)
 	if err != nil {
 		return err

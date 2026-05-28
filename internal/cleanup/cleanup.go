@@ -21,7 +21,7 @@ func RunIfNeeded() {
 // Run performs cleanup: removes old entries and enforces max trash size.
 func Run(cfg config.Config) (removedEntries int, freedBytes int64) {
 	// 1. Remove entries older than retention period
-	cutoff := time.Now().Add(-time.Duration(cfg.RetentionDays) * 24 * time.Hour)
+	cutoff := time.Now().Add(-cfg.RetentionDuration())
 	removed, _ := journal.DeleteBefore(cutoff)
 	removedEntries = removed
 
@@ -73,7 +73,10 @@ func Purge() error {
 	if err := os.MkdirAll(config.TrashDir(), 0o755); err != nil {
 		return err
 	}
-	return os.Remove(config.JournalPath())
+	if err := os.Remove(config.JournalPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // PurgeBefore removes trash and journal entries older than a given time.

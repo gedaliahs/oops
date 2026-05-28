@@ -218,10 +218,19 @@ func ListTrashDirs() ([]string, error) {
 
 // Remove deletes a trash directory.
 func Remove(trashDir string) error {
-	if !strings.HasPrefix(trashDir, config.TrashDir()) {
+	root, err := filepath.Abs(config.TrashDir())
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(trashDir)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return fmt.Errorf("refusing to remove path outside trash: %s", trashDir)
 	}
-	return os.RemoveAll(trashDir)
+	return os.RemoveAll(target)
 }
 
 // linkDir hard-links all files in a directory tree.

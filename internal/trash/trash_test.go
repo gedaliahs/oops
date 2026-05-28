@@ -4,16 +4,21 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/gedaliah/oops/internal/config"
 )
 
+func setupTestTrash(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+}
+
 func TestBackupAndRestore_File(t *testing.T) {
+	setupTestTrash(t)
 	tmp := t.TempDir()
 	origFile := filepath.Join(tmp, "test.txt")
 	os.WriteFile(origFile, []byte("hello world"), 0o644)
-
-	// Override trash dir for test
-	trashRoot := filepath.Join(tmp, "trash")
-	os.MkdirAll(trashRoot, 0o755)
 
 	trashDir, backed, err := Backup("test-001", []string{origFile})
 	if err != nil {
@@ -52,6 +57,7 @@ func TestBackupAndRestore_File(t *testing.T) {
 }
 
 func TestBackupAndRestore_Dir(t *testing.T) {
+	setupTestTrash(t)
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "mydir")
 	os.MkdirAll(filepath.Join(dir, "sub"), 0o755)
@@ -86,6 +92,7 @@ func TestBackupAndRestore_Dir(t *testing.T) {
 }
 
 func TestBackup_NonexistentFile(t *testing.T) {
+	setupTestTrash(t)
 	_, _, err := Backup("test-003", []string{"/nonexistent/file"})
 	if err == nil {
 		t.Error("expected error for nonexistent file")
@@ -100,5 +107,38 @@ func TestSize(t *testing.T) {
 	s := Size(tmp)
 	if s != 10 {
 		t.Errorf("expected 10 bytes, got %d", s)
+	}
+}
+
+func TestRemoveRejectsPathOutsideTrashWithSharedPrefix(t *testing.T) {
+	setupTestTrash(t)
+
+	outside := config.TrashDir() + "-sibling"
+	outsideEntry := filepath.Join(outside, "entry")
+	if err := os.MkdirAll(outsideEntry, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Remove(outsideEntry); err == nil {
+		t.Fatal("expected Remove to reject path outside trash")
+	}
+	if _, err := os.Stat(outsideEntry); err != nil {
+		t.Fatalf("outside path should not be removed: %v", err)
+	}
+}
+
+func TestRemoveAllowsTrashChild(t *testing.T) {
+	setupTestTrash(t)
+
+	trashEntry := filepath.Join(config.TrashDir(), "entry")
+	if err := os.MkdirAll(trashEntry, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Remove(trashEntry); err != nil {
+		t.Fatalf("expected trash child removal to succeed: %v", err)
+	}
+	if _, err := os.Stat(trashEntry); !os.IsNotExist(err) {
+		t.Fatalf("expected trash child to be removed, stat err=%v", err)
 	}
 }

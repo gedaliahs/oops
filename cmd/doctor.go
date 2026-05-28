@@ -46,7 +46,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	// Check config
 	cfg := config.Load()
-	fmt.Println(style.Success(fmt.Sprintf("Config: retention=%dd, max_trash=%s", cfg.RetentionDays, style.FormatSize(cfg.MaxTrashBytes))))
+	fmt.Println(style.Success(fmt.Sprintf("Config: retention=%dh, max_trash=%s", cfg.RetentionHours, style.FormatSize(cfg.MaxTrashBytes))))
 
 	// Check journal
 	if _, err := os.Stat(config.JournalPath()); err != nil {

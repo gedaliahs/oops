@@ -14,14 +14,15 @@ var configCmd = &cobra.Command{
 	Long: `Get or set oops configuration.
 
 Available keys:
-  retention_days   Days to keep backups (default: 7)
+  retention_hours  Hours to keep backups (default: 2)
   max_trash_bytes  Maximum trash size in bytes (default: 5368709120)
   risk_warning     Show warnings for high-risk commands (default: true)
+  confirm_mode     Confirmation prompts: off, high, or all (default: off)
 
 Examples:
   oops config                        # show all settings
-  oops config retention_days         # get a value
-  oops config retention_days 14      # set a value`,
+  oops config retention_hours        # get a value
+  oops config retention_hours 6      # keep backups for 6 hours`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runConfig,
 }
@@ -35,7 +36,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	case 0:
 		// Show all config
 		cfg := config.Load()
-		fmt.Printf("retention_days   = %d\n", cfg.RetentionDays)
+		fmt.Printf("retention_hours  = %d\n", cfg.RetentionHours)
 		fmt.Printf("max_trash_bytes  = %d (%s)\n", cfg.MaxTrashBytes, style.FormatSize(cfg.MaxTrashBytes))
 		fmt.Printf("risk_warning     = %v\n", cfg.RiskWarning)
 		fmt.Printf("confirm_mode     = %s\n", cfg.ConfirmMode)

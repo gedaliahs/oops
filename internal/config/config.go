@@ -10,17 +10,25 @@ import (
 )
 
 type Config struct {
-	RetentionDays int    `json:"retention_days"`
-	MaxTrashBytes int64  `json:"max_trash_bytes"`
-	RiskWarning   bool   `json:"risk_warning"`
-	ConfirmMode   string `json:"confirm_mode"` // "off", "high", "all"
+	RetentionHours int    `json:"retention_hours"`
+	MaxTrashBytes  int64  `json:"max_trash_bytes"`
+	RiskWarning    bool   `json:"risk_warning"`
+	ConfirmMode    string `json:"confirm_mode"` // "off", "high", "all"
 }
 
 var Default = Config{
-	RetentionDays: 7,
-	MaxTrashBytes: 5 * 1024 * 1024 * 1024, // 5GB
-	RiskWarning:   true,
-	ConfirmMode:   "off",
+	RetentionHours: 2,
+	MaxTrashBytes:  5 * 1024 * 1024 * 1024, // 5GB
+	RiskWarning:    true,
+	ConfirmMode:    "off",
+}
+
+type diskConfig struct {
+	RetentionHours *int    `json:"retention_hours"`
+	RetentionDays  *int    `json:"retention_days"` // Legacy, migrated on load.
+	MaxTrashBytes  *int64  `json:"max_trash_bytes"`
+	RiskWarning    *bool   `json:"risk_warning"`
+	ConfirmMode    *string `json:"confirm_mode"`
 }
 
 func OopsDir() string {
@@ -50,12 +58,32 @@ func Load() Config {
 	if err != nil {
 		return cfg
 	}
-	_ = json.Unmarshal(data, &cfg)
-	if cfg.RetentionDays <= 0 {
-		cfg.RetentionDays = Default.RetentionDays
+	var disk diskConfig
+	if err := json.Unmarshal(data, &disk); err != nil {
+		return cfg
+	}
+	if disk.RetentionHours != nil {
+		cfg.RetentionHours = *disk.RetentionHours
+	} else if disk.RetentionDays != nil {
+		cfg.RetentionHours = *disk.RetentionDays * 24
+	}
+	if disk.MaxTrashBytes != nil {
+		cfg.MaxTrashBytes = *disk.MaxTrashBytes
+	}
+	if disk.RiskWarning != nil {
+		cfg.RiskWarning = *disk.RiskWarning
+	}
+	if disk.ConfirmMode != nil {
+		cfg.ConfirmMode = *disk.ConfirmMode
+	}
+	if cfg.RetentionHours <= 0 {
+		cfg.RetentionHours = Default.RetentionHours
 	}
 	if cfg.MaxTrashBytes <= 0 {
 		cfg.MaxTrashBytes = Default.MaxTrashBytes
+	}
+	if cfg.ConfirmMode != "off" && cfg.ConfirmMode != "high" && cfg.ConfirmMode != "all" {
+		cfg.ConfirmMode = Default.ConfirmMode
 	}
 	return cfg
 }
@@ -74,8 +102,8 @@ func Save(cfg Config) error {
 func Get(key string) string {
 	cfg := Load()
 	switch key {
-	case "retention_days":
-		return strconv.Itoa(cfg.RetentionDays)
+	case "retention_hours":
+		return strconv.Itoa(cfg.RetentionHours)
 	case "max_trash_bytes":
 		return strconv.FormatInt(cfg.MaxTrashBytes, 10)
 	case "risk_warning":
@@ -90,15 +118,21 @@ func Get(key string) string {
 func Set(key, value string) error {
 	cfg := Load()
 	switch key {
+	case "retention_hours":
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("invalid value for retention_hours: %s", value)
+		}
+		cfg.RetentionHours = n
 	case "retention_days":
 		n, err := strconv.Atoi(value)
-		if err != nil {
+		if err != nil || n <= 0 {
 			return fmt.Errorf("invalid value for retention_days: %s", value)
 		}
-		cfg.RetentionDays = n
+		cfg.RetentionHours = n * 24
 	case "max_trash_bytes":
 		n, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
+		if err != nil || n <= 0 {
 			return fmt.Errorf("invalid value for max_trash_bytes: %s", value)
 		}
 		cfg.MaxTrashBytes = n
@@ -109,8 +143,14 @@ func Set(key, value string) error {
 			return fmt.Errorf("invalid confirm_mode: %s (use off, high, or all)", value)
 		}
 		cfg.ConfirmMode = value
+	default:
+		return fmt.Errorf("unknown key: %s", key)
 	}
 	return Save(cfg)
+}
+
+func (cfg Config) RetentionDuration() time.Duration {
+	return time.Duration(cfg.RetentionHours) * time.Hour
 }
 
 func EnsureDir() error {
@@ -135,4 +175,3 @@ func ShouldCleanup() bool {
 func MarkCleanup() {
 	_ = os.WriteFile(LastCleanupPath(), []byte(time.Now().Format(time.RFC3339)), 0o644)
 }
-
