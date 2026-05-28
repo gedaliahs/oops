@@ -22,7 +22,7 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
   echo "Building ${os}/${arch}..."
   CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags="-s -w -X github.com/gedaliah/oops/cmd.Version=${VERSION}" -o "$DIST/oops" "$ROOT"
   touch -t 200001010000 "$DIST/oops"
-  COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname root -C "$DIST" -cf "$DIST/oops.tar" oops
+  COPYFILE_DISABLE=1 tar --format ustar --owner=0 --group=0 --numeric-owner -C "$DIST" -cf "$DIST/oops.tar" oops
   gzip -n -c "$DIST/oops.tar" > "$DIST/$archive"
   rm -f "$DIST/oops.tar"
   rm -f "$DIST/oops"

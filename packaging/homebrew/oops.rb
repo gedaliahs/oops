@@ -7,20 +7,20 @@ class Oops < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/gedaliahs/oops/releases/download/v0.4.9/oops_darwin_arm64.tar.gz"
-      sha256 "d651ee7f2ecbff7b791d1b8727db836c696a0c2a01bc56fb5a30719749996969"
+      sha256 "f8e0205fbfc587d2abf2bff1a5dc7f8243ae99422ddd7b41470c9b565045f7b2"
     else
       url "https://github.com/gedaliahs/oops/releases/download/v0.4.9/oops_darwin_amd64.tar.gz"
-      sha256 "fb59fca174932efc1d2d35fa2ce42f5517e352c1262fa71b16af9142ed508636"
+      sha256 "919f7203dd685bed13052d3bc66e75f5abcdf5c7fbe4b4f2934c68f6af1fc731"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/gedaliahs/oops/releases/download/v0.4.9/oops_linux_arm64.tar.gz"
-      sha256 "be37cf7a384aa04e51bde25fabc825916192e816c6338733c201779fe3a367e8"
+      sha256 "0db286f07f5717d2cc51fc4341fc575375fb1506a4919cc424162d4a015dbfe7"
     else
       url "https://github.com/gedaliahs/oops/releases/download/v0.4.9/oops_linux_amd64.tar.gz"
-      sha256 "04105a0c1f06f1b9202b18877806e789a9d932dda9b6d14fb584d14f4333e76b"
+      sha256 "c01b6b31829c87aa93625a790faf4cda71eb61dd02da451fa6ed16fb7e42ab45"
     end
   end
 
