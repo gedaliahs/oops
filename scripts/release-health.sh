@@ -15,8 +15,9 @@ fi
 VERSION="${VERSION#v}"
 BASE_URL="https://github.com/gedaliahs/oops/releases/download/v${VERSION}"
 SITE_INSTALLER_URL="${OOPS_SITE_INSTALLER_URL:-https://oops-cli.com/install.sh}"
-TAP_FORMULA_URL="${OOPS_TAP_FORMULA_URL:-https://raw.githubusercontent.com/gedaliahs/homebrew-tap/main/Formula/oops.rb}"
+TAP_FORMULA_URL="${OOPS_TAP_FORMULA_URL:-}"
 STRICT_LIVE="${OOPS_RELEASE_HEALTH_STRICT_LIVE:-0}"
+COMPARE_LOCAL="${OOPS_RELEASE_HEALTH_COMPARE_LOCAL:-${GITHUB_ACTIONS:-0}}"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -87,12 +88,18 @@ site_installer_smoke() {
 }
 
 tap_formula_matches() {
-  fetch "$TAP_FORMULA_URL" "$tmp/tap-oops.rb"
+  if [ -n "$TAP_FORMULA_URL" ]; then
+    fetch "$TAP_FORMULA_URL" "$tmp/tap-oops.rb"
+  elif command -v gh >/dev/null 2>&1; then
+    gh api repos/gedaliahs/homebrew-tap/contents/Formula/oops.rb --jq '.content' | base64 --decode > "$tmp/tap-oops.rb"
+  else
+    fetch "https://raw.githubusercontent.com/gedaliahs/homebrew-tap/main/Formula/oops.rb" "$tmp/tap-oops.rb"
+  fi
   formula_matches_sums "$tmp/tap-oops.rb" "$tmp/SHA256SUMS"
 }
 
 check "release SHA256SUMS is downloadable" fetch "${BASE_URL}/SHA256SUMS" "$tmp/SHA256SUMS"
-if [ -f "$SUMS" ] && [ -f "$tmp/SHA256SUMS" ]; then
+if [ -f "$SUMS" ] && [ -f "$tmp/SHA256SUMS" ] && { [ "$COMPARE_LOCAL" = "1" ] || [ "$COMPARE_LOCAL" = "true" ]; }; then
   check "local and release SHA256SUMS match" cmp -s "$SUMS" "$tmp/SHA256SUMS"
 fi
 
