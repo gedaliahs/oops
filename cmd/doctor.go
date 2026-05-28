@@ -182,6 +182,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 }
 
 func fixOopsDirPermissions() error {
+	_ = os.MkdirAll(config.TrashDir(), 0o755)
+
+	chmod := exec.Command("chmod", "-R", "u+rwX", config.OopsDir())
+	chmod.Stdout = os.Stdout
+	chmod.Stderr = os.Stderr
+	chmod.Stdin = os.Stdin
+	_ = chmod.Run()
+	if err := config.CheckWritable(); err == nil {
+		return nil
+	}
+
 	current, err := user.Current()
 	if err != nil {
 		return err
@@ -193,7 +204,7 @@ func fixOopsDirPermissions() error {
 	if err := chown.Run(); err != nil {
 		return err
 	}
-	chmod := exec.Command("chmod", "-R", "u+rwX", config.OopsDir())
+	chmod = exec.Command("chmod", "-R", "u+rwX", config.OopsDir())
 	chmod.Stdout = os.Stdout
 	chmod.Stderr = os.Stderr
 	chmod.Stdin = os.Stdin

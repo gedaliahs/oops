@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_VERSION="0.5.2"
+DEFAULT_VERSION="0.5.3"
 REPO="gedaliahs/oops"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
@@ -62,6 +62,39 @@ discover_latest_version() {
     | head -n 1
 }
 
+ensure_oops_dir() {
+  local target_user="${SUDO_USER:-${USER:-}}"
+  if [ -z "$target_user" ]; then
+    target_user="$(id -un 2>/dev/null || true)"
+  fi
+
+  mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
+
+  if [ -w "$HOME/.oops" ] && [ -w "$HOME/.oops/trash" ]; then
+    ok "~/.oops backup directory is ready"
+    return
+  fi
+
+  warn "~/.oops exists but is not writable by ${target_user:-this user}"
+  chmod -R u+rwX "$HOME/.oops" 2>/dev/null || true
+  mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
+  if [ -w "$HOME/.oops" ] && [ -w "$HOME/.oops/trash" ]; then
+    ok "Repaired ~/.oops permissions"
+    return
+  fi
+
+  if command -v sudo &>/dev/null && [ -n "$target_user" ]; then
+    info "Repairing ~/.oops ownership..."
+    sudo chown -R "$target_user" "$HOME/.oops" || err "could not repair ~/.oops permissions; run: sudo chown -R ${target_user} \"$HOME/.oops\""
+    chmod -R u+rwX "$HOME/.oops" 2>/dev/null || true
+    mkdir -p "$HOME/.oops/trash"
+    ok "Repaired ~/.oops permissions"
+    return
+  fi
+
+  err "could not prepare ~/.oops; run: sudo chown -R ${target_user:-$(id -un)} \"$HOME/.oops\""
+}
+
 if [ -n "${OOPS_VERSION:-}" ]; then
   VERSION="${OOPS_VERSION#v}"
 elif [ -n "${OOPS_BASE_URL:-}" ]; then
@@ -94,6 +127,8 @@ if $UPGRADE; then
 
   if [ "$CURRENT" = "$VERSION" ] && ! $NEEDS_MIGRATE; then
     echo -e "${R}  oops${N} ${D}v${VERSION}${N}"
+    echo ""
+    ensure_oops_dir
     echo ""
     echo -e "  ${G}Already on the latest version.${N}"
     echo ""
@@ -390,36 +425,6 @@ maybe_install_cleanup_service() {
       info "Optional: run ${INSTALL_DIR}/oops cleanup-service install for hourly cleanup"
       ;;
   esac
-}
-
-ensure_oops_dir() {
-  local target_user="${SUDO_USER:-${USER:-}}"
-  if [ -z "$target_user" ]; then
-    target_user="$(id -un 2>/dev/null || true)"
-  fi
-
-  if [ ! -d "$HOME/.oops" ]; then
-    mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
-  else
-    mkdir -p "$HOME/.oops/trash" 2>/dev/null || true
-  fi
-
-  if [ -w "$HOME/.oops" ] && [ -w "$HOME/.oops/trash" ]; then
-    ok "~/.oops backup directory is ready"
-    return
-  fi
-
-  warn "~/.oops exists but is not writable by ${target_user:-this user}"
-  if command -v sudo &>/dev/null && [ -n "$target_user" ]; then
-    info "Repairing ~/.oops ownership..."
-    sudo chown -R "$target_user" "$HOME/.oops" || err "could not repair ~/.oops permissions; run: sudo chown -R ${target_user} \"$HOME/.oops\""
-    chmod -R u+rwX "$HOME/.oops" 2>/dev/null || true
-    mkdir -p "$HOME/.oops/trash"
-    ok "Repaired ~/.oops permissions"
-    return
-  fi
-
-  err "could not prepare ~/.oops; run: sudo chown -R ${target_user:-$(id -un)} \"$HOME/.oops\""
 }
 
 section "5. Preferences"
