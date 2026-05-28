@@ -76,6 +76,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Println(style.Success("git available"))
 	}
 
+	if installed, loaded, label, err := cleanupServiceStatus(); err == nil {
+		switch {
+		case installed && loaded:
+			fmt.Println(style.Success(label + " is installed and active"))
+		case installed:
+			fmt.Println(style.Warning(label + " is installed but not active"))
+		default:
+			fmt.Println(style.Warning(label + " is not installed; run oops cleanup-service install for hourly cleanup"))
+		}
+	}
+
 	// Check shell and hook
 	shellPath := os.Getenv("SHELL")
 	if shellPath != "" {

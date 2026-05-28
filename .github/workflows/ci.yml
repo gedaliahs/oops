@@ -34,5 +34,30 @@ jobs:
           home_dir=$(mktemp -d)
           dist_dir=$(mktemp -d)
           cp dist/* "$dist_dir/"
-          HOME="$home_dir" INSTALL_DIR="$install_dir" OOPS_BASE_URL="file://$dist_dir" OOPS_SKIP_SELF_TEST=0 bash install.sh
+          HOME="$home_dir" INSTALL_DIR="$install_dir" OOPS_BASE_URL="file://$dist_dir" OOPS_SKIP_SELF_TEST=0 OOPS_SKIP_SIGSTORE=1 OOPS_SKIP_PROFILE_PROMPT=1 OOPS_SKIP_CLEANUP_PROMPT=1 bash install.sh
           "$install_dir/oops" --version
+
+  shell-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install shell dependencies
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y zsh fish
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install fish
+          fi
+
+      - name: Run shell hook E2E tests
+        run: scripts/shell-e2e.sh

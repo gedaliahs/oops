@@ -43,12 +43,54 @@ type RestoredFile struct {
 	BackupCurrent string
 }
 
+type RestorePlan struct {
+	TrashDir  string
+	Options   RestoreOptions
+	Files     []PlannedRestore
+	Conflicts []RestoreConflict
+}
+
+type PlannedRestore struct {
+	Original          string
+	Backup            string
+	Target            string
+	BackupCurrent     string
+	IsDir             bool
+	Mode              os.FileMode
+	TargetExists      bool
+	WillOverwrite     bool
+	WillBackupCurrent bool
+}
+
+type RestoreConflict struct {
+	Path   string
+	Reason string
+}
+
 type ConflictError struct {
 	Path string
 }
 
 func (e *ConflictError) Error() string {
 	return fmt.Sprintf("%s already exists; use --overwrite, --backup-current, or --to <dir>", e.Path)
+}
+
+type ConflictListError struct {
+	Conflicts []RestoreConflict
+}
+
+func (e *ConflictListError) Error() string {
+	if len(e.Conflicts) == 0 {
+		return "restore has conflicts"
+	}
+	if len(e.Conflicts) == 1 {
+		return (&ConflictError{Path: e.Conflicts[0].Path}).Error()
+	}
+	return fmt.Sprintf("%d restore targets already exist; use --overwrite, --backup-current, or --to <dir>", len(e.Conflicts))
+}
+
+func (p RestorePlan) HasConflicts() bool {
+	return len(p.Conflicts) > 0
 }
 
 // Backup backs up the given files into a new trash directory.
@@ -162,75 +204,196 @@ func Restore(trashDir string) ([]string, error) {
 }
 
 func RestoreWithOptions(trashDir string, opts RestoreOptions) ([]RestoredFile, error) {
-	manifest, err := ReadManifest(trashDir)
+	plan, err := PlanRestore(trashDir, opts)
 	if err != nil {
 		return nil, err
 	}
+	return ExecuteRestorePlan(plan)
+}
 
-	var restored []RestoredFile
+func PlanRestore(trashDir string, opts RestoreOptions) (RestorePlan, error) {
+	if opts.Overwrite && opts.BackupCurrent {
+		return RestorePlan{}, fmt.Errorf("use only one of overwrite or backup-current")
+	}
+
+	trashAbs, err := filepath.Abs(trashDir)
+	if err != nil {
+		return RestorePlan{}, err
+	}
+
+	manifest, err := ReadManifest(trashDir)
+	if err != nil {
+		return RestorePlan{}, err
+	}
+
+	plan := RestorePlan{
+		TrashDir: trashAbs,
+		Options:  opts,
+	}
+
 	for _, bf := range manifest.Files {
-		target := restoreTarget(bf.Original, opts.ToDir)
-		parentDir := filepath.Dir(target)
-		if err := os.MkdirAll(parentDir, 0o755); err != nil {
-			return restored, fmt.Errorf("creating parent dir %s: %w", parentDir, err)
+		target, err := restoreTarget(bf.Original, opts.ToDir)
+		if err != nil {
+			return plan, err
 		}
 
-		currentBackup := ""
+		backup, err := validateBackupPath(trashAbs, bf.Backup)
+		if err != nil {
+			return plan, err
+		}
+		if err := validateBackupType(backup, bf); err != nil {
+			return plan, err
+		}
+
+		item := PlannedRestore{
+			Original: bf.Original,
+			Backup:   backup,
+			Target:   target,
+			IsDir:    bf.IsDir,
+			Mode:     bf.Mode,
+		}
+
 		if _, err := os.Lstat(target); err == nil {
+			item.TargetExists = true
 			switch {
 			case opts.BackupCurrent:
-				currentBackup, err = moveCurrentAside(target)
+				item.WillBackupCurrent = true
+				item.BackupCurrent, err = nextCurrentBackupPath(target)
 				if err != nil {
-					return restored, fmt.Errorf("backing up current %s: %w", target, err)
+					return plan, fmt.Errorf("planning current backup for %s: %w", target, err)
 				}
 			case opts.Overwrite:
-				if err := removeTarget(target, bf.IsDir); err != nil {
-					return restored, fmt.Errorf("removing existing %s: %w", target, err)
-				}
+				item.WillOverwrite = true
 			default:
-				return restored, &ConflictError{Path: target}
+				plan.Conflicts = append(plan.Conflicts, RestoreConflict{
+					Path:   target,
+					Reason: "target already exists",
+				})
 			}
 		} else if !os.IsNotExist(err) {
-			return restored, fmt.Errorf("checking %s: %w", target, err)
+			return plan, fmt.Errorf("checking %s: %w", target, err)
 		}
 
-		if bf.IsDir {
-			if err := copyDir(bf.Backup, target); err != nil {
-				return restored, fmt.Errorf("restoring dir %s: %w", target, err)
+		plan.Files = append(plan.Files, item)
+	}
+
+	return plan, nil
+}
+
+func ExecuteRestorePlan(plan RestorePlan) ([]RestoredFile, error) {
+	if plan.HasConflicts() {
+		return nil, &ConflictListError{Conflicts: plan.Conflicts}
+	}
+
+	type stagedRestore struct {
+		item      PlannedRestore
+		stageRoot string
+		stagePath string
+	}
+
+	var staged []stagedRestore
+	cleanupStages := true
+	defer func() {
+		if !cleanupStages {
+			return
+		}
+		for _, s := range staged {
+			_ = os.RemoveAll(s.stageRoot)
+		}
+	}()
+
+	for _, item := range plan.Files {
+		parentDir := filepath.Dir(item.Target)
+		if err := os.MkdirAll(parentDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating parent dir %s: %w", parentDir, err)
+		}
+
+		stageRoot, err := os.MkdirTemp(parentDir, ".oops-restore-*")
+		if err != nil {
+			return nil, fmt.Errorf("creating restore stage near %s: %w", item.Target, err)
+		}
+		stagePath := filepath.Join(stageRoot, "item")
+
+		if item.IsDir {
+			if err := copyDir(item.Backup, stagePath); err != nil {
+				return nil, fmt.Errorf("staging dir %s: %w", item.Target, err)
 			}
-		} else if bf.Mode&os.ModeSymlink != 0 {
-			link, err := os.Readlink(bf.Backup)
+		} else if item.Mode&os.ModeSymlink != 0 {
+			link, err := os.Readlink(item.Backup)
 			if err != nil {
-				return restored, fmt.Errorf("reading symlink %s: %w", bf.Backup, err)
+				return nil, fmt.Errorf("reading symlink %s: %w", item.Backup, err)
 			}
-			if err := os.Symlink(link, target); err != nil {
-				return restored, fmt.Errorf("restoring symlink %s: %w", target, err)
+			if err := os.Symlink(link, stagePath); err != nil {
+				return nil, fmt.Errorf("staging symlink %s: %w", item.Target, err)
 			}
 		} else {
-			if err := copyFile(bf.Backup, target); err != nil {
-				return restored, fmt.Errorf("restoring file %s: %w", target, err)
+			if err := copyFile(item.Backup, stagePath); err != nil {
+				return nil, fmt.Errorf("staging file %s: %w", item.Target, err)
 			}
 		}
 
-		if bf.Mode&os.ModeSymlink == 0 {
-			_ = os.Chmod(target, bf.Mode)
+		if item.Mode&os.ModeSymlink == 0 {
+			_ = os.Chmod(stagePath, item.Mode)
 		}
-		restored = append(restored, RestoredFile{Path: target, BackupCurrent: currentBackup})
+		staged = append(staged, stagedRestore{
+			item:      item,
+			stageRoot: stageRoot,
+			stagePath: stagePath,
+		})
+	}
+
+	var restored []RestoredFile
+	for _, s := range staged {
+		item := s.item
+		currentBackup := ""
+
+		if item.TargetExists {
+			switch {
+			case item.WillBackupCurrent:
+				var err error
+				currentBackup, err = moveCurrentAside(item.Target)
+				if err != nil {
+					return restored, fmt.Errorf("backing up current %s: %w", item.Target, err)
+				}
+			case item.WillOverwrite:
+				if err := removeTarget(item.Target, item.IsDir); err != nil {
+					return restored, fmt.Errorf("removing existing %s: %w", item.Target, err)
+				}
+			}
+		}
+
+		if err := os.Rename(s.stagePath, item.Target); err != nil {
+			return restored, fmt.Errorf("committing restore %s: %w", item.Target, err)
+		}
+		restored = append(restored, RestoredFile{Path: item.Target, BackupCurrent: currentBackup})
 	}
 
 	return restored, nil
 }
 
-func restoreTarget(original, toDir string) string {
+func restoreTarget(original, toDir string) (string, error) {
+	cleanOriginal := filepath.Clean(original)
+	if !filepath.IsAbs(cleanOriginal) {
+		return "", fmt.Errorf("manifest original path must be absolute: %s", original)
+	}
 	if toDir == "" {
-		return original
+		return cleanOriginal, nil
 	}
 	base, err := filepath.Abs(toDir)
 	if err != nil {
 		base = toDir
 	}
-	rel := strings.TrimPrefix(filepath.Clean(original), string(os.PathSeparator))
-	return filepath.Join(base, rel)
+	rel := strings.TrimPrefix(cleanOriginal, string(os.PathSeparator))
+	target := filepath.Join(base, rel)
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	relToBase, err := filepath.Rel(base, targetAbs)
+	if err != nil || relToBase == ".." || filepath.IsAbs(relToBase) || strings.HasPrefix(relToBase, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("restore target escapes destination: %s", target)
+	}
+	return targetAbs, nil
 }
 
 func removeTarget(path string, isDir bool) error {
@@ -240,14 +403,58 @@ func removeTarget(path string, isDir bool) error {
 	return os.Remove(path)
 }
 
+func validateBackupPath(trashAbs, backup string) (string, error) {
+	backupAbs, err := filepath.Abs(backup)
+	if err != nil {
+		return "", err
+	}
+	filesRoot := filepath.Join(trashAbs, "files")
+	rel, err := filepath.Rel(filesRoot, backupAbs)
+	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("manifest backup path escapes trash: %s", backup)
+	}
+	return backupAbs, nil
+}
+
+func validateBackupType(backup string, bf BackedUpFile) error {
+	info, err := os.Lstat(backup)
+	if err != nil {
+		return fmt.Errorf("checking backup %s: %w", backup, err)
+	}
+
+	switch {
+	case bf.IsDir:
+		if !info.IsDir() {
+			return fmt.Errorf("backup type mismatch for %s: expected directory", backup)
+		}
+	case bf.Mode&os.ModeSymlink != 0:
+		if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("backup type mismatch for %s: expected symlink", backup)
+		}
+	default:
+		if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("backup type mismatch for %s: expected regular file", backup)
+		}
+	}
+	return nil
+}
+
 func moveCurrentAside(path string) (string, error) {
+	target, err := nextCurrentBackupPath(path)
+	if err != nil {
+		return "", err
+	}
+	return target, os.Rename(path, target)
+}
+
+func nextCurrentBackupPath(path string) (string, error) {
 	stamp := time.Now().Format("20060102-150405")
 	base := path + ".oops-current-" + stamp
 	target := base
 	for i := 1; ; i++ {
 		if _, err := os.Lstat(target); err != nil {
 			if os.IsNotExist(err) {
-				return target, os.Rename(path, target)
+				return target, nil
 			}
 			return "", err
 		}

@@ -8,7 +8,7 @@ Undo for your terminal. A shell hook that backs up files before destructive comm
 curl -fsSL oops-cli.com/install.sh | bash
 ```
 
-The installer handles everything — discovers the latest GitHub Release, verifies its checksum, adds the shell hook to your shell config, and runs a quick restore self-test.
+The installer handles everything — discovers the latest GitHub Release, verifies checksums, verifies Sigstore signatures when `cosign` is available, adds the shell hook, offers a protection profile, and runs a quick restore self-test.
 
 Homebrew is available from the public tap:
 
@@ -46,14 +46,20 @@ $ oops
 | `git branch -D` | Logs SHA | recreate |
 | `git clean -fd` | Stashes untracked files | stash apply |
 | `find ... -delete` | Backs up search roots | restore |
+| `xargs rm` / `fd -x rm` / `parallel rm` | Backs up the current tree | restore |
 | `rsync --delete` | Backs up destination | restore |
 | `dd of=...` | Backs up output file | restore |
+| `git worktree remove` | Backs up the worktree path | restore |
+| `make clean` / `npm run clean` / `yarn clean` / `pnpm clean` | Backs up the current tree | restore |
 
 ## Commands
 
 | Command | Description |
 |---|---|
 | `oops` | Undo last action (pass a number to go further back) |
+| `oops undo` / `oops restore` | Explicit undo command and alias |
+| `oops undo --dry-run` | Show what would happen without changing files |
+| `oops restore --plan` | Show conflicts, backups, overwrite behavior, and git actions |
 | `oops --overwrite` | Restore over an existing target |
 | `oops --backup-current` | Move an existing target aside before restore |
 | `oops --to DIR` | Restore into a separate directory |
@@ -67,7 +73,7 @@ $ oops
 | `oops clean` | Remove old backups (`--all` for everything) |
 | `oops cleanup-service` | Install, remove, or inspect hourly background cleanup |
 | `oops config` | View or change settings |
-| `oops config preset cautious` | Apply a risk policy preset (`cautious`, `agent`, `quiet`) |
+| `oops config preset agent` | Apply a risk policy preset (`normal`, `agent`, `cautious`, `quiet`) |
 | `oops protect-path` | Add high-safety rules for important paths |
 | `oops doctor` | Check installation health |
 | `oops tutorial` | Interactive walkthrough |
@@ -83,7 +89,7 @@ Any tool that runs shell commands in your terminal goes through the same hook �
 
 A `preexec` shell hook pattern-matches each command. Non-destructive commands pass through with zero overhead (no subprocess). Destructive commands trigger `oops protect`, which backs up affected files to `~/.oops/trash/` then lets the original command run.
 
-Backups are copied into `~/.oops/trash/` with a manifest in the journal. Copying costs more disk than hard links, but it keeps backups correct for overwrites, redirects, and in-place edits where shared inodes would be unsafe. Auto-cleanup removes old entries after 2 hours by default, and `oops keep` or protected-path rules can retain important backups longer.
+Backups are copied into `~/.oops/trash/` with a manifest in the journal. Copying costs more disk than hard links, but it keeps backups correct for overwrites, redirects, and in-place edits where shared inodes would be unsafe. Restore builds a plan first, detects conflicts before mutating files, stages backup content, then commits the restore. Auto-cleanup removes old entries after 2 hours by default, and `oops keep` or protected-path rules can retain important backups longer.
 
 ## Uninstall
 

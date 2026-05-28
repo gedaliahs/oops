@@ -88,6 +88,21 @@ func TestApplyPresetAgent(t *testing.T) {
 	}
 }
 
+func TestApplyPresetNormal(t *testing.T) {
+	setupTestConfig(t)
+
+	if _, err := ApplyPreset("agent"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ApplyPreset("normal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RetentionHours != Default.RetentionHours || !cfg.RiskWarning || cfg.ConfirmMode != Default.ConfirmMode {
+		t.Fatalf("unexpected normal preset: %+v", cfg)
+	}
+}
+
 func TestProtectedPathMatchesChildren(t *testing.T) {
 	setupTestConfig(t)
 	root := filepath.Join(t.TempDir(), "project")

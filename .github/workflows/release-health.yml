@@ -1,0 +1,21 @@
+name: Release Health
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to verify, with or without v
+        required: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  OOPS_RELEASE_HEALTH_STRICT_LIVE: "1"
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release, installer, tap, and live install
+        run: scripts/release-health.sh "${{ inputs.version }}"

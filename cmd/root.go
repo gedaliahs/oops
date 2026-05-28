@@ -12,6 +12,7 @@ import (
 	"github.com/gedaliah/oops/internal/style"
 	"github.com/gedaliah/oops/internal/trash"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -22,13 +23,15 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.5.0"
+var Version = "0.5.1"
 
 var versionFlag bool
 var upgradeFlag bool
 var restoreOverwrite bool
 var restoreBackupCurrent bool
 var restoreToDir string
+var restoreDryRun bool
+var restorePlan bool
 
 var rootCmd = &cobra.Command{
 	Use:          "oops [N]",
@@ -38,13 +41,21 @@ var rootCmd = &cobra.Command{
 	RunE:         runUndo,
 }
 
+var undoCmd = &cobra.Command{
+	Use:     "undo [N]",
+	Aliases: []string{"restore"},
+	Short:   "Undo a protected destructive command",
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runUndo,
+}
+
 func init() {
 	rootCmd.SetHelpFunc(customHelp)
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "Print version")
 	rootCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Upgrade oops to the latest version")
-	rootCmd.Flags().BoolVar(&restoreOverwrite, "overwrite", false, "Overwrite existing restore targets")
-	rootCmd.Flags().BoolVar(&restoreBackupCurrent, "backup-current", false, "Move existing restore targets aside before restoring")
-	rootCmd.Flags().StringVar(&restoreToDir, "to", "", "Restore into a directory instead of original paths")
+	addRestoreFlags(rootCmd.Flags())
+	addRestoreFlags(undoCmd.Flags())
+	rootCmd.AddCommand(undoCmd)
 }
 
 func customHelp(cmd *cobra.Command, args []string) {
@@ -57,6 +68,8 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("  " + helpBold.Render("Commands"))
 	printCmd("oops log", "show undo history")
+	printCmd("oops undo", "undo the last destructive action")
+	printCmd("oops restore", "alias for oops undo")
 	printCmd("oops status", "show health and backup state")
 	printCmd("oops show", "preview an undo")
 	printCmd("oops diff", "compare backup with current files")
@@ -78,6 +91,8 @@ func customHelp(cmd *cobra.Command, args []string) {
 	printCmd("--overwrite", "overwrite existing restore targets")
 	printCmd("--backup-current", "move existing targets aside")
 	printCmd("--to <dir>", "restore into another directory")
+	printCmd("--dry-run", "show restore actions without changing files")
+	printCmd("--plan", "show restore plan with conflicts and backups")
 	fmt.Println()
 	fmt.Println("  " + helpBold.Render("Examples"))
 	fmt.Println("    " + helpDim.Render("$") + " rm important-file.txt")
@@ -103,6 +118,14 @@ func printCmd(name, desc string) {
 		spaces += " "
 	}
 	fmt.Println("    " + helpCmd.Render(name) + spaces + helpDesc.Render(desc))
+}
+
+func addRestoreFlags(flags *pflag.FlagSet) {
+	flags.BoolVar(&restoreOverwrite, "overwrite", false, "Overwrite existing restore targets")
+	flags.BoolVar(&restoreBackupCurrent, "backup-current", false, "Move existing restore targets aside before restoring")
+	flags.StringVar(&restoreToDir, "to", "", "Restore into a directory instead of original paths")
+	flags.BoolVar(&restoreDryRun, "dry-run", false, "Show restore actions without changing files")
+	flags.BoolVar(&restorePlan, "plan", false, "Show detailed restore plan without changing files")
 }
 
 func Execute() {
@@ -149,6 +172,10 @@ func runUndo(cmd *cobra.Command, args []string) error {
 	entry := entries[n-1]
 
 	if entry.GitAction != "" {
+		if restoreDryRun || restorePlan {
+			printGitRestorePlan(entry)
+			return nil
+		}
 		return undoGit(entry)
 	}
 
@@ -160,11 +187,23 @@ func runUndo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use only one of --overwrite or --backup-current")
 	}
 
-	restored, err := trash.RestoreWithOptions(entry.TrashDir, trash.RestoreOptions{
+	opts := trash.RestoreOptions{
 		Overwrite:     restoreOverwrite,
 		BackupCurrent: restoreBackupCurrent,
 		ToDir:         restoreToDir,
-	})
+	}
+
+	plan, err := trash.PlanRestore(entry.TrashDir, opts)
+	if err != nil {
+		return fmt.Errorf("planning restore: %w", err)
+	}
+
+	if restoreDryRun || restorePlan {
+		printRestorePlan(entry, plan)
+		return nil
+	}
+
+	restored, err := trash.ExecuteRestorePlan(plan)
 	if err != nil {
 		return fmt.Errorf("restoring files: %w", err)
 	}
@@ -187,6 +226,91 @@ func runUndo(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func printRestorePlan(entry journal.Entry, plan trash.RestorePlan) {
+	title := "Restore dry run"
+	if restorePlan {
+		title = "Restore plan"
+	}
+	conflicts := make(map[string]string, len(plan.Conflicts))
+	for _, conflict := range plan.Conflicts {
+		conflicts[conflict.Path] = conflict.Reason
+	}
+
+	fmt.Println(style.Bold.Render(title))
+	fmt.Println(style.Dim.Render("  Command: ") + style.ShortenPath(entry.Command))
+	fmt.Println(style.Dim.Render("  Action: ") + style.ShortenPath(entry.Desc))
+	if plan.Options.ToDir != "" {
+		fmt.Println(style.Dim.Render("  Destination: ") + style.ShortenPath(plan.Options.ToDir))
+	} else {
+		fmt.Println(style.Dim.Render("  Destination: ") + "original paths")
+	}
+	fmt.Println(style.Dim.Render("  Undo entry: ") + "left available")
+	if len(plan.Files) == 0 {
+		fmt.Println(style.Dim.Render("  Files: none"))
+		return
+	}
+
+	fmt.Println(style.Dim.Render("  Files:"))
+	for _, item := range plan.Files {
+		action := plannedRestoreAction(item, conflicts[item.Target])
+		fmt.Println("    " + style.Cyan.Render(style.ShortenPath(item.Target)) + style.Dim.Render("  "+action))
+		if restorePlan {
+			fmt.Println(style.Dim.Render("      from: ") + style.ShortenPath(item.Backup))
+			if item.BackupCurrent != "" {
+				fmt.Println(style.Dim.Render("      save current as: ") + style.ShortenPath(item.BackupCurrent))
+			}
+		}
+	}
+
+	if len(plan.Conflicts) > 0 {
+		fmt.Println(style.Warning("Conflicts:"))
+		for _, conflict := range plan.Conflicts {
+			fmt.Println("    " + style.ShortenPath(conflict.Path) + style.Dim.Render(" - "+conflict.Reason))
+		}
+		fmt.Println(style.Dim.Render("  Add --overwrite, --backup-current, or --to <dir>."))
+	}
+	fmt.Println(style.Dim.Render("  No files changed."))
+}
+
+func plannedRestoreAction(item trash.PlannedRestore, conflict string) string {
+	switch {
+	case conflict != "":
+		return "conflict: " + conflict
+	case item.WillBackupCurrent:
+		return "backup current, then restore"
+	case item.WillOverwrite:
+		return "overwrite"
+	case item.TargetExists:
+		return "target exists"
+	default:
+		return "create"
+	}
+}
+
+func printGitRestorePlan(entry journal.Entry) {
+	title := "Restore dry run"
+	if restorePlan {
+		title = "Restore plan"
+	}
+	fmt.Println(style.Bold.Render(title))
+	fmt.Println(style.Dim.Render("  Command: ") + style.ShortenPath(entry.Command))
+	fmt.Println(style.Dim.Render("  Action: ") + style.ShortenPath(entry.Desc))
+	switch entry.GitAction {
+	case "stash":
+		stashRef := entry.GitStash
+		if stashRef == "" {
+			stashRef = "stash@{0}"
+		}
+		fmt.Println(style.Dim.Render("  Git action: ") + "git stash apply " + stashRef)
+	case "log-branch":
+		fmt.Println(style.Dim.Render("  Git action: ") + "git branch " + entry.GitRef + " " + entry.GitSHA)
+	default:
+		fmt.Println(style.Dim.Render("  Git action: ") + entry.GitAction)
+	}
+	fmt.Println(style.Dim.Render("  Undo entry: ") + "left available")
+	fmt.Println(style.Dim.Render("  No files changed."))
 }
 
 func runUpgrade() error {

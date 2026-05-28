@@ -9,7 +9,7 @@ _oops_preexec() {
   local cmd="$1"
   local output
   case "$cmd" in
-    rm\ *|rm|mv\ *|cp\ *|sed\ *|gsed\ *|perl\ *-[pi]*|chmod\ *|chown\ *|truncate\ *|gtruncate\ *|dd\ *of=*|find\ *-delete*|rsync\ *--delete*|git\ reset*|git\ checkout*|git\ restore*|git\ switch*|git\ clean*|git\ branch\ *-[dD]*)
+    rm\ *|rm|mv\ *|cp\ *|sed\ *|gsed\ *|perl\ *-[pi]*|chmod\ *|chown\ *|truncate\ *|gtruncate\ *|dd\ *of=*|find\ *-delete*|rsync\ *--delete*|xargs\ *|fd\ *|fdfind\ *|parallel\ *|make\ *clean*|make\ *distclean*|make\ *clobber*|npm\ clean*|npm\ run\ clean*|npm\ run-script\ clean*|yarn\ clean*|yarn\ run\ clean*|pnpm\ clean*|pnpm\ run\ clean*|git\ reset*|git\ checkout*|git\ restore*|git\ switch*|git\ clean*|git\ branch\ *-[dD]*|git\ worktree\ remove*)
       output=$(%s protect -- "$cmd" 2>&1 1>/dev/null)
       if echo "$output" | grep -q "^OOPS_CONFIRM:"; then
         local desc="${output#OOPS_CONFIRM:}"
@@ -37,13 +37,13 @@ add-zsh-hook preexec _oops_preexec
 func BashHook(oopsBin string) string {
 	return fmt.Sprintf(`# oops — terminal undo (bash hook)
 _oops_preexec() {
-  [ -n "$COMP_LINE" ] && return
-  [ "$BASH_COMMAND" = "$PROMPT_COMMAND" ] && return
+  [ -n "${COMP_LINE:-}" ] && return
+  [ "$BASH_COMMAND" = "${PROMPT_COMMAND:-}" ] && return
 
   local cmd="$BASH_COMMAND"
   local output
   case "$cmd" in
-    rm\ *|rm|mv\ *|cp\ *|sed\ *|gsed\ *|perl\ *-[pi]*|chmod\ *|chown\ *|truncate\ *|gtruncate\ *|dd\ *of=*|find\ *-delete*|rsync\ *--delete*|git\ reset*|git\ checkout*|git\ restore*|git\ switch*|git\ clean*|git\ branch\ *-[dD]*)
+    rm\ *|rm|mv\ *|cp\ *|sed\ *|gsed\ *|perl\ *-[pi]*|chmod\ *|chown\ *|truncate\ *|gtruncate\ *|dd\ *of=*|find\ *-delete*|rsync\ *--delete*|xargs\ *|fd\ *|fdfind\ *|parallel\ *|make\ *clean*|make\ *distclean*|make\ *clobber*|npm\ clean*|npm\ run\ clean*|npm\ run-script\ clean*|yarn\ clean*|yarn\ run\ clean*|pnpm\ clean*|pnpm\ run\ clean*|git\ reset*|git\ checkout*|git\ restore*|git\ switch*|git\ clean*|git\ branch\ *-[dD]*|git\ worktree\ remove*)
       output=$(%s protect -- "$cmd" 2>&1 1>/dev/null)
       if echo "$output" | grep -q "^OOPS_CONFIRM:"; then
         local desc="${output#OOPS_CONFIRM:}"
@@ -73,7 +73,7 @@ function _oops_preexec --on-event fish_preexec
   set -l cmd $argv[1]
   set -l output
   switch $cmd
-    case 'rm *' 'mv *' 'cp *' 'sed *' 'gsed *' 'perl *-[pi]*' 'chmod *' 'chown *' 'truncate *' 'gtruncate *' 'dd *of=*' 'find *-delete*' 'rsync *--delete*' 'git reset*' 'git checkout*' 'git restore*' 'git switch*' 'git clean*' 'git branch *-D*' 'git branch *-d*'
+    case 'rm *' 'mv *' 'cp *' 'sed *' 'gsed *' 'perl *-[pi]*' 'chmod *' 'chown *' 'truncate *' 'gtruncate *' 'dd *of=*' 'find *-delete*' 'rsync *--delete*' 'xargs *' 'fd *' 'fdfind *' 'parallel *' 'make *clean*' 'make *distclean*' 'make *clobber*' 'npm clean*' 'npm run clean*' 'npm run-script clean*' 'yarn clean*' 'yarn run clean*' 'pnpm clean*' 'pnpm run clean*' 'git reset*' 'git checkout*' 'git restore*' 'git switch*' 'git clean*' 'git branch *-D*' 'git branch *-d*' 'git worktree remove*'
       set output (%s protect -- "$cmd" 2>&1 1>/dev/null)
       if string match -q "OOPS_CONFIRM:*" -- $output
         set -l desc (string replace "OOPS_CONFIRM:" "" -- $output)

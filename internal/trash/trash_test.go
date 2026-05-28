@@ -1,6 +1,7 @@
 package trash
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,44 @@ func TestRestoreWithOptionsConflictRequiresExplicitChoice(t *testing.T) {
 	if _, err := RestoreWithOptions(trashDir, RestoreOptions{}); err == nil {
 		t.Fatal("expected conflict error")
 	}
+}
+
+func TestPlanRestoreReportsAllConflictsBeforeMutating(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	first := filepath.Join(tmp, "first.txt")
+	second := filepath.Join(tmp, "second.txt")
+	if err := os.WriteFile(first, []byte("first original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-conflict-plan", []string{first, second})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.WriteFile(first, []byte("first current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := PlanRestore(trashDir, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("PlanRestore failed: %v", err)
+	}
+	if len(plan.Conflicts) != 2 {
+		t.Fatalf("expected two conflicts, got %+v", plan.Conflicts)
+	}
+	if _, err := RestoreWithOptions(trashDir, RestoreOptions{}); err == nil {
+		t.Fatal("expected conflict error")
+	}
+
+	assertFileContent(t, first, "first current")
+	assertFileContent(t, second, "second current")
 }
 
 func TestRestoreWithOptionsBackupCurrent(t *testing.T) {
@@ -214,6 +253,148 @@ func TestBackupAndRestore_Dir(t *testing.T) {
 	}
 }
 
+func TestBackupAndRestore_Symlink(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "target.txt")
+	link := filepath.Join(tmp, "link.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-symlink", []string{link})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(trashDir); err != nil {
+		t.Fatalf("Restore failed: %v", err)
+	}
+
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected restored symlink, got mode %s", info.Mode())
+	}
+	dest, err := os.Readlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest != "target.txt" {
+		t.Fatalf("expected symlink target target.txt, got %s", dest)
+	}
+}
+
+func TestRestorePreservesFilePermissions(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	origFile := filepath.Join(tmp, "script.sh")
+	if err := os.WriteFile(origFile, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-mode", []string{origFile})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.Remove(origFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(trashDir); err != nil {
+		t.Fatalf("Restore failed: %v", err)
+	}
+	info, err := os.Stat(origFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("expected mode 0700, got %o", info.Mode().Perm())
+	}
+}
+
+func TestPlanRestoreRejectsBackupOutsideTrash(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	outsideBackup := filepath.Join(tmp, "outside.txt")
+	target := filepath.Join(tmp, "target.txt")
+	if err := os.WriteFile(outsideBackup, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir := filepath.Join(config.TrashDir(), "evil")
+	if err := os.MkdirAll(filepath.Join(trashDir, "files"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, trashDir, Manifest{
+		ID: "evil",
+		Files: []BackedUpFile{{
+			Original: target,
+			Backup:   outsideBackup,
+			Mode:     0o644,
+		}},
+	})
+
+	if _, err := PlanRestore(trashDir, RestoreOptions{}); err == nil || !strings.Contains(err.Error(), "escapes trash") {
+		t.Fatalf("expected backup escape error, got %v", err)
+	}
+}
+
+func TestPlanRestoreRejectsRelativeOriginal(t *testing.T) {
+	setupTestTrash(t)
+	trashDir := filepath.Join(config.TrashDir(), "relative")
+	backup := filepath.Join(trashDir, "files", "backup.txt")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("backup"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, trashDir, Manifest{
+		ID: "relative",
+		Files: []BackedUpFile{{
+			Original: "../target.txt",
+			Backup:   backup,
+			Mode:     0o644,
+		}},
+	})
+
+	if _, err := PlanRestore(trashDir, RestoreOptions{}); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("expected relative original error, got %v", err)
+	}
+}
+
+func TestPlanRestoreRejectsSymlinkBackupForRegularFile(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	trashDir := filepath.Join(config.TrashDir(), "symlink-mismatch")
+	backup := filepath.Join(trashDir, "files", "backup.txt")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", backup); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, trashDir, Manifest{
+		ID: "symlink-mismatch",
+		Files: []BackedUpFile{{
+			Original: filepath.Join(tmp, "target.txt"),
+			Backup:   backup,
+			Mode:     0o644,
+		}},
+	})
+
+	if _, err := PlanRestore(trashDir, RestoreOptions{}); err == nil || !strings.Contains(err.Error(), "expected regular file") {
+		t.Fatalf("expected type mismatch error, got %v", err)
+	}
+}
+
 func TestBackup_NonexistentFile(t *testing.T) {
 	setupTestTrash(t)
 	_, _, err := Backup("test-003", []string{"/nonexistent/file"})
@@ -263,5 +444,30 @@ func TestRemoveAllowsTrashChild(t *testing.T) {
 	}
 	if _, err := os.Stat(trashEntry); !os.IsNotExist(err) {
 		t.Fatalf("expected trash child to be removed, stat err=%v", err)
+	}
+}
+
+func writeManifest(t *testing.T, trashDir string, manifest Manifest) {
+	t.Helper()
+	if err := os.MkdirAll(trashDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trashDir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("expected %s to contain %q, got %q", path, want, string(data))
 	}
 }

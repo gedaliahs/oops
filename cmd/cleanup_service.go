@@ -36,6 +36,39 @@ func runCleanupService(cmd *cobra.Command, args []string) error {
 	}
 }
 
+func cleanupServiceStatus() (installed bool, loaded bool, label string, err error) {
+	switch runtime.GOOS {
+	case "darwin":
+		path, err := macLaunchAgentPath()
+		if err != nil {
+			return false, false, "", err
+		}
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, false, "cleanup launch agent", nil
+			}
+			return false, false, "", err
+		}
+		_, err = launchctl("print", macLaunchDomain()+"/"+cleanupServiceName)
+		return true, err == nil, "cleanup launch agent", nil
+	case "linux":
+		_, timerPath, err := linuxSystemdPaths()
+		if err != nil {
+			return false, false, "", err
+		}
+		if _, err := os.Stat(timerPath); err != nil {
+			if os.IsNotExist(err) {
+				return false, false, "cleanup systemd timer", nil
+			}
+			return false, false, "", err
+		}
+		_, err = systemctl("--user", "is-active", "--quiet", "oops-cleanup.timer")
+		return true, err == nil, "cleanup systemd timer", nil
+	default:
+		return false, false, "cleanup service", fmt.Errorf("cleanup-service is not supported on %s", runtime.GOOS)
+	}
+}
+
 func runMacCleanupService(action string) error {
 	path, err := macLaunchAgentPath()
 	if err != nil {

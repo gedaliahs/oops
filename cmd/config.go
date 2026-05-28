@@ -23,7 +23,7 @@ Examples:
   oops config                        # show all settings
   oops config retention_hours        # get a value
   oops config retention_hours 6      # keep backups for 6 hours
-  oops config preset cautious        # apply a policy preset`,
+  oops config preset agent           # apply a policy preset`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runConfig,
 }
@@ -46,7 +46,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 
 	case 1:
 		if args[0] == "preset" {
-			fmt.Println("available presets: cautious, agent, quiet")
+			fmt.Println("available presets: normal, agent, cautious, quiet")
 			return nil
 		}
 		// Get value

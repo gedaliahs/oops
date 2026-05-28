@@ -46,6 +46,11 @@ const (
 	ActionFind     ActionType = "find"
 	ActionRsync    ActionType = "rsync"
 	ActionPerl     ActionType = "perl"
+	ActionXargs    ActionType = "xargs"
+	ActionFD       ActionType = "fd"
+	ActionParallel ActionType = "parallel"
+	ActionScript   ActionType = "script"
+	ActionMake     ActionType = "make"
 )
 
 // Protection describes what needs to be backed up and how risky it is.
@@ -197,6 +202,113 @@ func ParseRsync(args []string) *Protection {
 		Files:  []string{dest},
 		Desc:   "rsync " + strings.Join(args, " "),
 	}
+}
+
+// ParseXargs catches commands like "find ... | xargs rm". The exact input set
+// comes from stdin, so the safest static backup target is the current tree.
+func ParseXargs(args []string) *Protection {
+	if !containsCommand(args, "rm") {
+		return nil
+	}
+	return cwdProtection(ActionXargs, RiskHigh, "xargs "+strings.Join(args, " "))
+}
+
+// ParseFD catches fd/fdfind exec forms such as "fd . -x rm {}".
+func ParseFD(command string, args []string) *Protection {
+	execMode := false
+	for i, a := range args {
+		if a == "-x" || a == "--exec" || a == "-X" || a == "--exec-batch" {
+			execMode = true
+			if i+1 < len(args) && basename(args[i+1]) == "rm" {
+				return cwdProtection(ActionFD, RiskHigh, command+" "+strings.Join(args, " "))
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "--exec=") || strings.HasPrefix(a, "--exec-batch=") {
+			execMode = true
+			value := strings.TrimPrefix(strings.TrimPrefix(a, "--exec="), "--exec-batch=")
+			if basename(value) == "rm" {
+				return cwdProtection(ActionFD, RiskHigh, command+" "+strings.Join(args, " "))
+			}
+		}
+	}
+	if execMode && containsCommand(args, "rm") {
+		return cwdProtection(ActionFD, RiskHigh, command+" "+strings.Join(args, " "))
+	}
+	return nil
+}
+
+// ParseParallel catches GNU parallel commands that fan out rm.
+func ParseParallel(args []string) *Protection {
+	if !containsCommand(args, "rm") {
+		return nil
+	}
+	return cwdProtection(ActionParallel, RiskHigh, "parallel "+strings.Join(args, " "))
+}
+
+// ParseMake catches common destructive cleanup targets.
+func ParseMake(args []string) *Protection {
+	dir := "."
+	target := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-C" && i+1 < len(args) {
+			i++
+			dir = args[i]
+			continue
+		}
+		if strings.HasPrefix(a, "-C") && len(a) > 2 {
+			dir = a[2:]
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if isCleanTarget(a) {
+			target = a
+			break
+		}
+	}
+	if target == "" {
+		return nil
+	}
+	resolved := resolvePath(dir)
+	if _, err := os.Lstat(resolved); err != nil {
+		return nil
+	}
+	return &Protection{
+		Action: ActionMake,
+		Risk:   RiskMedium,
+		Files:  []string{resolved},
+		Desc:   "make " + target,
+	}
+}
+
+// ParsePackageClean catches npm/yarn/pnpm scripts that conventionally remove
+// build output. The script body is dynamic, so back up the current tree.
+func ParsePackageClean(command string, args []string) *Protection {
+	if len(args) == 0 {
+		return nil
+	}
+	script := ""
+	switch command {
+	case "npm", "pnpm":
+		if isCleanTarget(args[0]) {
+			script = args[0]
+		} else if (args[0] == "run" || args[0] == "run-script") && len(args) > 1 && isCleanTarget(args[1]) {
+			script = args[1]
+		}
+	case "yarn":
+		if isCleanTarget(args[0]) {
+			script = args[0]
+		} else if args[0] == "run" && len(args) > 1 && isCleanTarget(args[1]) {
+			script = args[1]
+		}
+	}
+	if script == "" {
+		return nil
+	}
+	return cwdProtection(ActionScript, RiskMedium, command+" "+strings.Join(args, " "))
 }
 
 // ParsePerl analyzes perl in-place edits.
@@ -555,6 +667,8 @@ func ParseGit(args []string) *Protection {
 		return parseGitClean(rest)
 	case "branch":
 		return parseGitBranch(rest)
+	case "worktree":
+		return parseGitWorktree(rest)
 	default:
 		return nil
 	}
@@ -705,6 +819,59 @@ func parseGitBranch(args []string) *Protection {
 		GitRef:    deleteName,
 		Desc:      "git branch -D " + deleteName,
 	}
+}
+
+func parseGitWorktree(args []string) *Protection {
+	if len(args) == 0 || args[0] != "remove" {
+		return nil
+	}
+	var target string
+	for _, a := range args[1:] {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		target = a
+		break
+	}
+	if target == "" {
+		return nil
+	}
+	resolved := resolvePath(target)
+	if _, err := os.Lstat(resolved); err != nil {
+		return nil
+	}
+	return &Protection{
+		Action: ActionGit,
+		Risk:   RiskHigh,
+		Files:  []string{resolved},
+		Desc:   "git worktree remove " + target,
+	}
+}
+
+func cwdProtection(action ActionType, risk RiskLevel, desc string) *Protection {
+	cwd := resolvePath(".")
+	if _, err := os.Lstat(cwd); err != nil {
+		return nil
+	}
+	return &Protection{
+		Action: action,
+		Risk:   risk,
+		Files:  []string{cwd},
+		Desc:   desc,
+	}
+}
+
+func containsCommand(args []string, name string) bool {
+	for _, a := range args {
+		if basename(a) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func isCleanTarget(target string) bool {
+	return target == "clean" || target == "distclean" || target == "clobber" || strings.HasPrefix(target, "clean:")
 }
 
 // resolvePaths resolves a list of paths, filtering out those that don't exist.

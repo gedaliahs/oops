@@ -166,6 +166,10 @@ func Set(key, value string) error {
 func ApplyPreset(name string) (Config, error) {
 	cfg := Load()
 	switch name {
+	case "normal":
+		cfg.RetentionHours = Default.RetentionHours
+		cfg.RiskWarning = Default.RiskWarning
+		cfg.ConfirmMode = Default.ConfirmMode
 	case "cautious":
 		cfg.RetentionHours = 24
 		cfg.RiskWarning = true
@@ -179,7 +183,7 @@ func ApplyPreset(name string) (Config, error) {
 		cfg.RiskWarning = false
 		cfg.ConfirmMode = "off"
 	default:
-		return cfg, fmt.Errorf("unknown preset: %s (use cautious, agent, or quiet)", name)
+		return cfg, fmt.Errorf("unknown preset: %s (use normal, cautious, agent, or quiet)", name)
 	}
 	return cfg, Save(cfg)
 }

@@ -69,7 +69,7 @@ func TestZshHookCanInvokeProtect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := "source " + shellQuote(hookPath) + "\n_oops_preexec 'git restore .'\n_oops_preexec 'find . -name \"*.tmp\" -delete'\n"
+	script := "source " + shellQuote(hookPath) + "\n_oops_preexec 'git restore .'\n_oops_preexec 'find . -name \"*.tmp\" -delete'\n_oops_preexec 'xargs rm -rf'\n_oops_preexec 'npm run clean'\n_oops_preexec 'git worktree remove ../old'\n"
 	cmd := exec.Command("zsh", "-f", "-c", script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("zsh hook failed: %v\n%s", err, out)
@@ -83,6 +83,9 @@ func TestZshHookCanInvokeProtect(t *testing.T) {
 	for _, want := range []string{
 		"protect -- git restore .",
 		"protect -- find . -name \"*.tmp\" -delete",
+		"protect -- xargs rm -rf",
+		"protect -- npm run clean",
+		"protect -- git worktree remove ../old",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("missing %q in hook log:\n%s", want, log)
@@ -101,7 +104,7 @@ func TestFishHookParsesWhenFishIsAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := "source " + shellQuote(hookPath) + "\nemit fish_preexec 'perl -pi -e s/a/b/ file.txt'\n"
+	script := "source " + shellQuote(hookPath) + "\nemit fish_preexec 'perl -pi -e s/a/b/ file.txt'\nemit fish_preexec 'fd -x rm {}'\n"
 	cmd := exec.Command("fish", "-c", script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("fish hook failed: %v\n%s", err, out)
@@ -111,7 +114,11 @@ func TestFishHookParsesWhenFishIsAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "protect -- perl -pi -e s/a/b/ file.txt") {
+	log := string(data)
+	if !strings.Contains(log, "protect -- perl -pi -e s/a/b/ file.txt") {
+		t.Fatalf("unexpected fish hook log:\n%s", data)
+	}
+	if !strings.Contains(log, "protect -- fd -x rm {}") {
 		t.Fatalf("unexpected fish hook log:\n%s", data)
 	}
 }

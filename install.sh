@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_VERSION="0.5.0"
+DEFAULT_VERSION="0.5.1"
 REPO="gedaliahs/oops"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
@@ -14,7 +14,13 @@ N='\033[0m'
 
 info()  { echo -e "  ${D}>${N} $1"; }
 ok()    { echo -e "  ${G}✓${N} $1"; }
+warn()  { echo -e "  ${D}!${N} $1"; }
 err()   { echo -e "  ${R}✗${N} $1"; exit 1; }
+section() {
+  echo ""
+  echo -e "  ${B}$1${N}"
+  echo ""
+}
 
 download_stdout() {
   local url="$1"
@@ -30,12 +36,23 @@ download_stdout() {
 download_to() {
   local url="$1"
   local dest="$2"
+  if ! try_download_to "$url" "$dest"; then
+    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+      err "curl or wget is required to download oops"
+    fi
+    err "download failed: $url"
+  fi
+}
+
+try_download_to() {
+  local url="$1"
+  local dest="$2"
   if command -v curl &>/dev/null; then
     curl -fsSL "$url" -o "$dest"
   elif command -v wget &>/dev/null; then
     wget -qO "$dest" "$url"
   else
-    err "curl or wget required"
+    return 127
   fi
 }
 
@@ -92,13 +109,14 @@ else
   echo -e "${R}  oops${N} installer ${D}v${VERSION}${N}"
   echo -e "${D}  undo for your terminal${N}"
   echo ""
-  echo -e "  A shell hook that backs up files before destructive"
-  echo -e "  commands run. Type ${R}oops${N} to restore them."
-  echo -e "  ${D}Works with rm, mv, sed -i, git reset, chmod, and more.${N}"
+  echo -e "  Backs up risky terminal changes before they run."
+  echo -e "  Type ${R}oops${N} to restore."
 fi
 echo ""
 
 # ── Detect platform ──────────────────────────────────
+
+section "1. System check"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -115,11 +133,11 @@ case "$OS" in
   *) err "Unsupported OS: $OS" ;;
 esac
 
-echo -e "  ${B}Installing${N}"
-echo ""
 info "Detected ${B}${OS}/${ARCH}${N}"
 
 # ── Download and install binary ──────────────────────
+
+section "2. Download"
 
 ARCHIVE="oops_${OS}_${ARCH}.tar.gz"
 URL="${BASE_URL}/${ARCHIVE}"
@@ -146,10 +164,48 @@ verify_checksum() {
   else
     err "shasum or sha256sum required for verification"
   fi
+  ok "Checksum verified"
+}
+
+verify_sigstore() {
+  if [ "${OOPS_SKIP_SIGSTORE:-}" = "1" ]; then
+    info "Skipping Sigstore verification"
+    return
+  fi
+
+  local bundle="$TMP/${ARCHIVE}.sigstore"
+  if ! try_download_to "${BASE_URL}/${ARCHIVE}.sigstore" "$bundle" 2>/dev/null; then
+    if [ "${OOPS_REQUIRE_SIGSTORE:-}" = "1" ]; then
+      err "Sigstore bundle missing"
+    fi
+    warn "Sigstore bundle not available; checksum verified"
+    return
+  fi
+
+  if ! command -v cosign &>/dev/null; then
+    if [ "${OOPS_REQUIRE_SIGSTORE:-}" = "1" ]; then
+      err "cosign required for Sigstore verification"
+    fi
+    warn "cosign not found; checksum verified"
+    return
+  fi
+
+  info "Verifying Sigstore signature..."
+  local identity="https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/v${VERSION}"
+  if ! cosign verify-blob "$TMP/$ARCHIVE" \
+    --bundle "$bundle" \
+    --certificate-identity "$identity" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null 2>&1; then
+    err "Sigstore verification failed"
+  fi
+  ok "Sigstore signature verified"
 }
 
 verify_checksum
+verify_sigstore
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+
+section "3. Install"
 
 mkdir -p "$INSTALL_DIR" 2>/dev/null || true
 if [ -w "$INSTALL_DIR" ]; then
@@ -185,6 +241,8 @@ run_self_test() {
 run_self_test
 
 # ── Add shell hook ───────────────────────────────────
+
+section "4. Shell setup"
 
 SHELL_NAME=$(basename "${SHELL:-zsh}")
 HOOK_LINE=""
@@ -251,6 +309,61 @@ if [ ! -d "$HOME/.oops" ]; then
 else
   ok "~/.oops already exists"
 fi
+
+configure_profile() {
+  local preset="${OOPS_INSTALL_PRESET:-}"
+  if [ -z "$preset" ] && ! $UPGRADE && [ "${OOPS_SKIP_PROFILE_PROMPT:-}" != "1" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    echo ""
+    echo -e "  ${B}Choose a protection profile${N}"
+    echo -e "    ${G}1${N}) normal   ${D}default 2-hour retention, warnings on${N}"
+    echo -e "    ${G}2${N}) agent    ${D}confirm every protected command${N}"
+    echo -e "    ${G}3${N}) cautious ${D}24-hour retention, confirm high-risk commands${N}"
+    echo -e "    ${G}4${N}) quiet    ${D}minimal prompts and warnings${N}"
+    printf "  Select [1]: " > /dev/tty
+    local reply
+    read -r reply < /dev/tty || reply=""
+    case "$reply" in
+      2|agent) preset="agent" ;;
+      3|cautious) preset="cautious" ;;
+      4|quiet) preset="quiet" ;;
+      *) preset="normal" ;;
+    esac
+  fi
+  preset="${preset:-normal}"
+  if [ "$preset" = "normal" ]; then
+    ok "Profile: normal"
+    return
+  fi
+  if HOME="$HOME" "$INSTALL_DIR/oops" config preset "$preset" >/dev/null; then
+    ok "Profile: ${preset}"
+  else
+    warn "Could not apply profile: ${preset}"
+  fi
+}
+
+maybe_install_cleanup_service() {
+  local choice="${OOPS_INSTALL_CLEANUP_SERVICE:-}"
+  if [ -z "$choice" ] && ! $UPGRADE && [ "${OOPS_SKIP_CLEANUP_PROMPT:-}" != "1" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    printf "  Install hourly background cleanup? [y/N] " > /dev/tty
+    read -r choice < /dev/tty || choice=""
+  fi
+  case "$choice" in
+    1|y|Y|yes|YES|true|TRUE)
+      if "$INSTALL_DIR/oops" cleanup-service install >/dev/null; then
+        ok "Background cleanup enabled"
+      else
+        warn "Could not enable background cleanup; run ${INSTALL_DIR}/oops cleanup-service install"
+      fi
+      ;;
+    *)
+      info "Optional: run ${INSTALL_DIR}/oops cleanup-service install for hourly cleanup"
+      ;;
+  esac
+}
+
+section "5. Preferences"
+configure_profile
+maybe_install_cleanup_service
 
 # ── Done ─────────────────────────────────────────────
 

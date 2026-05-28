@@ -78,6 +78,16 @@ func analyzeSimple(tokens []string) *Protection {
 		return ParseRsync(args)
 	case "git":
 		return ParseGit(args)
+	case "xargs":
+		return ParseXargs(args)
+	case "fd", "fdfind":
+		return ParseFD(cmd, args)
+	case "parallel":
+		return ParseParallel(args)
+	case "make", "gmake":
+		return ParseMake(args)
+	case "npm", "yarn", "pnpm":
+		return ParsePackageClean(cmd, args)
 	case "sudo":
 		// Recurse with args to handle "sudo rm -rf /"
 		if len(args) > 0 {
@@ -148,7 +158,8 @@ func basename(path string) string {
 func QuickMatch(command string) []string {
 	destructive := []string{
 		"rm", "mv", "cp", "sed", "gsed", "perl", "chmod", "chown", "truncate", "gtruncate",
-		"git", "dd", "find", "rsync", "shred",
+		"git", "dd", "find", "rsync", "shred", "xargs", "fd", "fdfind", "parallel",
+		"make", "gmake", "npm", "yarn", "pnpm",
 	}
 
 	var matches []string

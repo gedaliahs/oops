@@ -166,6 +166,50 @@ func TestAnalyze_AdditionalDestructiveCommands(t *testing.T) {
 	}
 }
 
+func TestAnalyze_BroadCleanupCommands(t *testing.T) {
+	tmp := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	worktree := filepath.Join(tmp, "other-worktree")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string]ActionType{
+		"find . -name '*.tmp' | xargs rm":         ActionXargs,
+		"fd -e tmp -x rm -f":                      ActionFD,
+		"fdfind . --exec-batch=rm":                ActionFD,
+		"parallel rm -rf ::: build dist":          ActionParallel,
+		"make clean":                              ActionMake,
+		"make -C " + tmp + " distclean":           ActionMake,
+		"npm run clean":                           ActionScript,
+		"npm run-script clean:dist":               ActionScript,
+		"yarn clean":                              ActionScript,
+		"pnpm run clean":                          ActionScript,
+		"git worktree remove " + worktree:         ActionGit,
+		"git worktree remove --force " + worktree: ActionGit,
+	}
+	for command, action := range cases {
+		prots := Analyze(command)
+		if len(prots) == 0 {
+			t.Fatalf("expected protection for %q", command)
+		}
+		if prots[0].Action != action {
+			t.Fatalf("expected %s for %q, got %s", action, command, prots[0].Action)
+		}
+		if len(prots[0].Files) == 0 {
+			t.Fatalf("expected files for %q", command)
+		}
+	}
+}
+
 func TestAnalyze_Redirect(t *testing.T) {
 	tmp := t.TempDir()
 	f := filepath.Join(tmp, "out.txt")
@@ -237,10 +281,13 @@ func TestAnalyze_XargsPipeline(t *testing.T) {
 	f := filepath.Join(tmp, "test.txt")
 	os.WriteFile(f, []byte("data"), 0o644)
 
-	// xargs wraps rm — we can't statically detect this
 	prots := Analyze("find . -name '*.tmp' | xargs rm " + f)
-	// This is a known limitation: xargs is the command, not rm
-	_ = prots // no assertion — documenting the limitation
+	if len(prots) == 0 {
+		t.Fatal("expected protection for xargs rm")
+	}
+	if prots[0].Action != ActionXargs {
+		t.Fatalf("expected ActionXargs, got %s", prots[0].Action)
+	}
 }
 
 func TestAnalyze_ChainedCommands(t *testing.T) {

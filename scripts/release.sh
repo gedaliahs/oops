@@ -26,7 +26,6 @@ go test -race ./...
 go vet ./...
 
 scripts/build-release.sh "$VERSION"
-scripts/update-homebrew-formula.sh "$VERSION"
 
 if [ -n "$SITE_ROOT" ] && [ -d "$SITE_ROOT/site" ]; then
   cp install.sh "$SITE_ROOT/site/install.sh"
@@ -37,13 +36,14 @@ fi
 
 echo
 echo "Release files are prepared for v$VERSION."
+echo "Homebrew formula updates are generated from CI-built release checksums after the tag is published."
 
 if ! $PUBLISH; then
   echo "Review changes, then run: scripts/release.sh $VERSION --publish"
   exit 0
 fi
 
-git add cmd/root.go install.sh .github/workflows/ci.yml .github/workflows/release.yml scripts packaging README.md internal cmd go.mod go.sum
+git add cmd/root.go install.sh .github/workflows scripts README.md internal cmd go.mod go.sum
 git commit -m "v$VERSION" || true
 git tag "v$VERSION"
 git push origin main
