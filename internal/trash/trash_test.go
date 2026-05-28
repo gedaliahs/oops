@@ -3,6 +3,7 @@ package trash
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gedaliah/oops/internal/config"
@@ -53,6 +54,128 @@ func TestBackupAndRestore_File(t *testing.T) {
 	}
 	if string(data) != "hello world" {
 		t.Errorf("expected 'hello world', got %q", string(data))
+	}
+}
+
+func TestBackupCopiesFileSoOverwriteCannotMutateBackup(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	origFile := filepath.Join(tmp, "test.txt")
+	if err := os.WriteFile(origFile, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-copy", []string{origFile})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.WriteFile(origFile, []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestoreWithOptions(trashDir, RestoreOptions{Overwrite: true}); err != nil {
+		t.Fatalf("RestoreWithOptions failed: %v", err)
+	}
+	data, err := os.ReadFile(origFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("expected copied backup to preserve original content, got %q", string(data))
+	}
+}
+
+func TestRestoreWithOptionsConflictRequiresExplicitChoice(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	origFile := filepath.Join(tmp, "test.txt")
+	if err := os.WriteFile(origFile, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-conflict", []string{origFile})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.WriteFile(origFile, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RestoreWithOptions(trashDir, RestoreOptions{}); err == nil {
+		t.Fatal("expected conflict error")
+	}
+}
+
+func TestRestoreWithOptionsBackupCurrent(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	origFile := filepath.Join(tmp, "test.txt")
+	if err := os.WriteFile(origFile, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-backup-current", []string{origFile})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	if err := os.WriteFile(origFile, []byte("current"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := RestoreWithOptions(trashDir, RestoreOptions{BackupCurrent: true})
+	if err != nil {
+		t.Fatalf("RestoreWithOptions failed: %v", err)
+	}
+	if len(restored) != 1 || restored[0].BackupCurrent == "" {
+		t.Fatalf("expected backup-current path, got %+v", restored)
+	}
+	data, err := os.ReadFile(origFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("expected original restore, got %q", string(data))
+	}
+	current, err := os.ReadFile(restored[0].BackupCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != "current" {
+		t.Fatalf("expected current file to be moved aside, got %q", string(current))
+	}
+}
+
+func TestRestoreWithOptionsToDir(t *testing.T) {
+	setupTestTrash(t)
+	tmp := t.TempDir()
+	origFile := filepath.Join(tmp, "nested", "test.txt")
+	if err := os.MkdirAll(filepath.Dir(origFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(origFile, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	trashDir, _, err := Backup("test-to-dir", []string{origFile})
+	if err != nil {
+		t.Fatalf("Backup failed: %v", err)
+	}
+	restoreDir := filepath.Join(tmp, "restore")
+	restored, err := RestoreWithOptions(trashDir, RestoreOptions{ToDir: restoreDir})
+	if err != nil {
+		t.Fatalf("RestoreWithOptions failed: %v", err)
+	}
+	if len(restored) != 1 {
+		t.Fatalf("expected one restored file, got %d", len(restored))
+	}
+	data, err := os.ReadFile(restored[0].Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("expected restore copy, got %q", string(data))
+	}
+	if !strings.HasPrefix(restored[0].Path, restoreDir) {
+		t.Fatalf("expected restore under %s, got %s", restoreDir, restored[0].Path)
 	}
 }
 

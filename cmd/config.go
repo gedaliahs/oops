@@ -22,7 +22,8 @@ Available keys:
 Examples:
   oops config                        # show all settings
   oops config retention_hours        # get a value
-  oops config retention_hours 6      # keep backups for 6 hours`,
+  oops config retention_hours 6      # keep backups for 6 hours
+  oops config preset cautious        # apply a policy preset`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runConfig,
 }
@@ -40,9 +41,14 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		fmt.Printf("max_trash_bytes  = %d (%s)\n", cfg.MaxTrashBytes, style.FormatSize(cfg.MaxTrashBytes))
 		fmt.Printf("risk_warning     = %v\n", cfg.RiskWarning)
 		fmt.Printf("confirm_mode     = %s\n", cfg.ConfirmMode)
+		fmt.Printf("protected_paths  = %d\n", len(cfg.ProtectedPaths))
 		return nil
 
 	case 1:
+		if args[0] == "preset" {
+			fmt.Println("available presets: cautious, agent, quiet")
+			return nil
+		}
 		// Get value
 		v := config.Get(args[0])
 		if v == "" {
@@ -52,6 +58,17 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		return nil
 
 	case 2:
+		if args[0] == "preset" {
+			cfg, err := config.ApplyPreset(args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Println(style.Success("Applied preset: " + args[1]))
+			fmt.Printf("retention_hours  = %d\n", cfg.RetentionHours)
+			fmt.Printf("risk_warning     = %v\n", cfg.RiskWarning)
+			fmt.Printf("confirm_mode     = %s\n", cfg.ConfirmMode)
+			return nil
+		}
 		// Set value
 		if err := config.Set(args[0], args[1]); err != nil {
 			return err

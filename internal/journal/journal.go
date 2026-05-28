@@ -24,6 +24,8 @@ type Entry struct {
 	CWD       string `json:"cwd"`
 	Undone    bool   `json:"undone,omitempty"`
 	Pinned    bool   `json:"pinned,omitempty"`
+	Protected bool   `json:"protected,omitempty"`
+	KeepUntil string `json:"keep_until,omitempty"`
 
 	// Git-specific
 	GitAction string `json:"git_action,omitempty"`
@@ -33,6 +35,17 @@ type Entry struct {
 
 	// Files that were backed up
 	Files []string `json:"files,omitempty"`
+}
+
+func (entry Entry) CleanupProtected(now time.Time) bool {
+	if entry.Pinned {
+		return true
+	}
+	if entry.KeepUntil == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, entry.KeepUntil)
+	return err == nil && t.After(now)
 }
 
 // Append adds an entry to the journal with file locking.
@@ -167,8 +180,9 @@ func DeleteBefore(t time.Time) (int, error) {
 	var kept []Entry
 	removed := 0
 	cutoff := t.Format(time.RFC3339)
+	now := time.Now()
 	for _, e := range all {
-		if !e.Pinned && e.Timestamp < cutoff {
+		if !e.CleanupProtected(now) && e.Timestamp < cutoff {
 			removed++
 		} else {
 			kept = append(kept, e)

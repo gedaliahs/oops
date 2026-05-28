@@ -132,3 +132,48 @@ func TestRunDoesNotPrunePinnedTrashForSizeLimit(t *testing.T) {
 		t.Fatalf("expected unpinned trash to be pruned, stat err=%v", err)
 	}
 }
+
+func TestRunDoesNotPruneKeepUntilTrashForSizeLimit(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	protectedTrash := filepath.Join(config.TrashDir(), "protected")
+	oldTrash := filepath.Join(config.TrashDir(), "old")
+	if err := os.MkdirAll(protectedTrash, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(oldTrash, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(protectedTrash, "protected.txt"), []byte("protected"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldTrash, "old.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	if err := journal.Append(journal.Entry{
+		ID:        "protected",
+		Timestamp: now.Format(time.RFC3339),
+		TrashDir:  protectedTrash,
+		KeepUntil: now.Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(journal.Entry{
+		ID:        "old",
+		Timestamp: now.Format(time.RFC3339),
+		TrashDir:  oldTrash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	Run(config.Config{RetentionHours: 24, MaxTrashBytes: 1})
+
+	if _, err := os.Stat(protectedTrash); err != nil {
+		t.Fatalf("expected keep-until trash to remain: %v", err)
+	}
+	if _, err := os.Stat(oldTrash); !os.IsNotExist(err) {
+		t.Fatalf("expected unprotected trash to be pruned, stat err=%v", err)
+	}
+}

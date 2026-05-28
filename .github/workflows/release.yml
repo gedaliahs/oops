@@ -54,3 +54,23 @@ jobs:
             dist/*.sigstore
             packaging/homebrew/oops.rb
           generate_release_notes: true
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not set; skipping tap update."
+            exit 0
+          fi
+          tmp=$(mktemp -d)
+          git clone --quiet "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/gedaliahs/homebrew-tap.git" "$tmp"
+          mkdir -p "$tmp/Formula"
+          cp packaging/homebrew/oops.rb "$tmp/Formula/oops.rb"
+          cd "$tmp"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/oops.rb
+          git commit -m "Update oops to ${GITHUB_REF_NAME}" || exit 0
+          git push --quiet

@@ -50,10 +50,13 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	fmt.Println(style.Success(fmt.Sprintf("Config: retention=%dh, max_trash=%s", cfg.RetentionHours, style.FormatSize(cfg.MaxTrashBytes))))
 
 	if latest, err := fetchLatestVersion(); err == nil && latest != "" {
-		if latest == Version {
+		switch compareVersions(latest, Version) {
+		case 0:
 			fmt.Println(style.Success("Version: v" + Version + " (latest)"))
-		} else {
+		case 1:
 			fmt.Println(style.Warning("Version: v" + Version + " installed, v" + latest + " available"))
+		default:
+			fmt.Println(style.Success("Version: v" + Version + " (newer than latest release v" + latest + ")"))
 		}
 	} else {
 		fmt.Println(style.Dim.Render("  " + style.SymBackup + " Latest version check skipped"))
@@ -150,9 +153,9 @@ func fetchLatestVersion() (string, error) {
 	var out []byte
 	var err error
 	if curl, lookErr := exec.LookPath("curl"); lookErr == nil {
-		out, err = exec.Command(curl, "-fsSL", "--max-time", "3", "https://oops-cli.com/install.sh").Output()
+		out, err = exec.Command(curl, "-fsSL", "--max-time", "3", "https://api.github.com/repos/gedaliahs/oops/releases/latest").Output()
 	} else if wget, lookErr := exec.LookPath("wget"); lookErr == nil {
-		out, err = exec.Command(wget, "-qO-", "--timeout=3", "https://oops-cli.com/install.sh").Output()
+		out, err = exec.Command(wget, "-qO-", "--timeout=3", "https://api.github.com/repos/gedaliahs/oops/releases/latest").Output()
 	} else {
 		return "", fmt.Errorf("curl or wget not found")
 	}
@@ -160,11 +163,14 @@ func fetchLatestVersion() (string, error) {
 		return "", err
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "VERSION=") {
-			return strings.Trim(strings.TrimPrefix(line, "VERSION="), `"`), nil
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, `"tag_name"`) {
+			tag := strings.TrimSpace(strings.TrimPrefix(line, `"tag_name":`))
+			tag = strings.Trim(strings.TrimSuffix(tag, ","), `"`)
+			return strings.TrimPrefix(tag, "v"), nil
 		}
 	}
-	return "", fmt.Errorf("VERSION not found")
+	return "", fmt.Errorf("tag_name not found")
 }
 
 func runDoctorSelfTest() error {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.4.9"
-BASE_URL="${OOPS_BASE_URL:-https://github.com/gedaliahs/oops/releases/download/v${VERSION}}"
+DEFAULT_VERSION="0.5.0"
+REPO="gedaliahs/oops"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Colors
@@ -15,6 +15,50 @@ N='\033[0m'
 info()  { echo -e "  ${D}>${N} $1"; }
 ok()    { echo -e "  ${G}✓${N} $1"; }
 err()   { echo -e "  ${R}✗${N} $1"; exit 1; }
+
+download_stdout() {
+  local url="$1"
+  if command -v curl &>/dev/null; then
+    curl -fsSL --max-time 8 "$url"
+  elif command -v wget &>/dev/null; then
+    wget -qO- --timeout=8 "$url"
+  else
+    return 127
+  fi
+}
+
+download_to() {
+  local url="$1"
+  local dest="$2"
+  if command -v curl &>/dev/null; then
+    curl -fsSL "$url" -o "$dest"
+  elif command -v wget &>/dev/null; then
+    wget -qO "$dest" "$url"
+  else
+    err "curl or wget required"
+  fi
+}
+
+discover_latest_version() {
+  download_stdout "https://api.github.com/repos/${REPO}/releases/latest" \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\([^"]*\)".*/\1/p' \
+    | head -n 1
+}
+
+if [ -n "${OOPS_VERSION:-}" ]; then
+  VERSION="${OOPS_VERSION#v}"
+elif [ -n "${OOPS_BASE_URL:-}" ]; then
+  VERSION="$DEFAULT_VERSION"
+else
+  VERSION="$(discover_latest_version || true)"
+  VERSION="${VERSION:-$DEFAULT_VERSION}"
+fi
+
+if [ -n "${OOPS_BASE_URL:-}" ]; then
+  BASE_URL="${OOPS_BASE_URL%/}"
+else
+  BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+fi
 
 UPGRADE=false
 if command -v oops &>/dev/null; then
@@ -83,13 +127,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 info "Downloading..."
-if command -v curl &>/dev/null; then
-  curl -fsSL "$URL" -o "$TMP/$ARCHIVE"
-elif command -v wget &>/dev/null; then
-  wget -qO "$TMP/$ARCHIVE" "$URL"
-else
-  err "curl or wget required"
-fi
+download_to "$URL" "$TMP/$ARCHIVE"
 
 verify_checksum() {
   if [ "${OOPS_SKIP_CHECKSUM:-}" = "1" ]; then
@@ -98,13 +136,7 @@ verify_checksum() {
   fi
 
   info "Verifying checksum..."
-  if command -v curl &>/dev/null; then
-    curl -fsSL "${BASE_URL}/SHA256SUMS" -o "$TMP/SHA256SUMS"
-  elif command -v wget &>/dev/null; then
-    wget -qO "$TMP/SHA256SUMS" "${BASE_URL}/SHA256SUMS"
-  else
-    err "curl or wget required"
-  fi
+  download_to "${BASE_URL}/SHA256SUMS" "$TMP/SHA256SUMS"
 
   grep "  ${ARCHIVE}$" "$TMP/SHA256SUMS" > "$TMP/SHA256SUM"
   if command -v shasum &>/dev/null; then

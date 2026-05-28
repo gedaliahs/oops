@@ -19,7 +19,7 @@ VERSION="${VERSION#v}"
 cd "$ROOT"
 
 perl -0pi -e "s/var Version = \"[^\"]+\"/var Version = \"$VERSION\"/" cmd/root.go
-perl -0pi -e "s/VERSION=\"[^\"]+\"/VERSION=\"$VERSION\"/" install.sh
+perl -0pi -e "s/DEFAULT_VERSION=\"[^\"]+\"/DEFAULT_VERSION=\"$VERSION\"/" install.sh
 
 gofmt -w cmd internal
 go test -race ./...

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"github.com/gedaliah/oops/internal/trash"
 	"github.com/spf13/cobra"
 )
+
+var errNoGitBackup = errors.New("no git backup created")
 
 var protectCmd = &cobra.Command{
 	Use:    "protect -- <command>",
@@ -42,10 +45,17 @@ func doProtect(command string) error {
 	cwd, _ := os.Getwd()
 
 	for _, p := range protections {
+		rule, protected := cfg.MatchProtectedPath(p.Files, cwd)
+		if protected {
+			p.Risk = detect.RiskHigh
+		}
+
 		// Confirmation mode: print a confirm prompt marker to stderr
 		// The shell hook reads this and prompts the user
 		shouldConfirm := false
-		if cfg.ConfirmMode == "all" {
+		if protected && rule.AlwaysConfirm {
+			shouldConfirm = true
+		} else if cfg.ConfirmMode == "all" {
 			shouldConfirm = true
 		} else if cfg.ConfirmMode == "high" && p.Risk == detect.RiskHigh {
 			shouldConfirm = true
@@ -68,11 +78,18 @@ func doProtect(command string) error {
 			Desc:      p.Desc,
 			CWD:       cwd,
 			Files:     p.Files,
+			Protected: protected,
+		}
+		if protected && rule.RetentionHours > 0 {
+			entry.KeepUntil = time.Now().Add(time.Duration(rule.RetentionHours) * time.Hour).Format(time.RFC3339)
 		}
 
 		// Handle git-specific actions
 		if p.GitAction != "" {
 			if err := protectGit(p, &entry); err != nil {
+				if errors.Is(err, errNoGitBackup) {
+					continue
+				}
 				fmt.Fprintln(os.Stderr, style.Error("oops: git backup failed: "+err.Error()))
 				continue
 			}
@@ -110,6 +127,7 @@ func doProtect(command string) error {
 func protectGit(p *detect.Protection, entry *journal.Entry) error {
 	switch p.GitAction {
 	case "stash":
+		before := currentStashRef()
 		stashArgs := []string{"stash", "push", "-m", "oops-backup: " + p.Desc}
 		// Include untracked files for git clean
 		if strings.Contains(p.Desc, "clean") {
@@ -118,12 +136,20 @@ func protectGit(p *detect.Protection, entry *journal.Entry) error {
 		out, err := exec.Command("git", stashArgs...).CombinedOutput()
 		if err != nil {
 			if strings.Contains(string(out), "No local changes") {
-				return nil
+				return errNoGitBackup
 			}
 			return fmt.Errorf("%s", string(out))
 		}
+		if strings.Contains(string(out), "No local changes") {
+			return errNoGitBackup
+		}
+		after := currentStashRef()
 		entry.GitAction = "stash"
-		entry.GitStash = "stash@{0}"
+		if after != "" && after != before {
+			entry.GitStash = after
+		} else {
+			entry.GitStash = "stash@{0}"
+		}
 
 	case "log-branch":
 		out, err := exec.Command("git", "rev-parse", p.GitRef).CombinedOutput()
@@ -136,4 +162,12 @@ func protectGit(p *detect.Protection, entry *journal.Entry) error {
 	}
 
 	return nil
+}
+
+func currentStashRef() string {
+	out, err := exec.Command("git", "rev-parse", "--verify", "refs/stash").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

@@ -34,10 +34,11 @@ func Run(cfg config.Config) (removedEntries int, freedBytes int64) {
 	entries, _ := journal.ReadAll()
 	activeTrash := make(map[string]bool)
 	pinnedTrash := make(map[string]bool)
+	now := time.Now()
 	for _, e := range entries {
 		if e.TrashDir != "" {
 			activeTrash[e.TrashDir] = true
-			if e.Pinned {
+			if e.CleanupProtected(now) {
 				pinnedTrash[e.TrashDir] = true
 			}
 		}

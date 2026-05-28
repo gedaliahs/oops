@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -72,5 +73,62 @@ func TestSetRetentionHoursSavesNewKey(t *testing.T) {
 	}
 	if _, ok := raw["retention_hours"]; !ok {
 		t.Fatalf("config missing retention_hours key: %s", data)
+	}
+}
+
+func TestApplyPresetAgent(t *testing.T) {
+	setupTestConfig(t)
+
+	cfg, err := ApplyPreset("agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RetentionHours != 6 || !cfg.RiskWarning || cfg.ConfirmMode != "all" {
+		t.Fatalf("unexpected agent preset: %+v", cfg)
+	}
+}
+
+func TestProtectedPathMatchesChildren(t *testing.T) {
+	setupTestConfig(t)
+	root := filepath.Join(t.TempDir(), "project")
+	child := filepath.Join(root, "src", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(child), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := AddProtectedPath(root, true, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rule.AlwaysConfirm || rule.RetentionHours != 24 {
+		t.Fatalf("unexpected rule: %+v", rule)
+	}
+
+	cfg := Load()
+	matched, ok := cfg.MatchProtectedPath([]string{child}, "")
+	if !ok {
+		t.Fatal("expected child path to match protected path")
+	}
+	if matched.Path != filepath.Clean(root) {
+		t.Fatalf("expected %s, got %s", root, matched.Path)
+	}
+}
+
+func TestRemoveProtectedPath(t *testing.T) {
+	setupTestConfig(t)
+	root := t.TempDir()
+	if _, err := AddProtectedPath(root, false, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := RemoveProtectedPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("expected rule to be removed")
+	}
+	if len(Load().ProtectedPaths) != 0 {
+		t.Fatalf("expected no protected paths, got %+v", Load().ProtectedPaths)
 	}
 }

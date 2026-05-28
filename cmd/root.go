@@ -22,22 +22,29 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.4.9"
+var Version = "0.5.0"
 
 var versionFlag bool
 var upgradeFlag bool
+var restoreOverwrite bool
+var restoreBackupCurrent bool
+var restoreToDir string
 
 var rootCmd = &cobra.Command{
-	Use:   "oops [N]",
-	Short: "Terminal undo — restore your last destructive command",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runUndo,
+	Use:          "oops [N]",
+	Short:        "Terminal undo — restore your last destructive command",
+	SilenceUsage: true,
+	Args:         cobra.MaximumNArgs(1),
+	RunE:         runUndo,
 }
 
 func init() {
 	rootCmd.SetHelpFunc(customHelp)
 	rootCmd.Flags().BoolVarP(&versionFlag, "version", "v", false, "Print version")
 	rootCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Upgrade oops to the latest version")
+	rootCmd.Flags().BoolVar(&restoreOverwrite, "overwrite", false, "Overwrite existing restore targets")
+	rootCmd.Flags().BoolVar(&restoreBackupCurrent, "backup-current", false, "Move existing restore targets aside before restoring")
+	rootCmd.Flags().StringVar(&restoreToDir, "to", "", "Restore into a directory instead of original paths")
 }
 
 func customHelp(cmd *cobra.Command, args []string) {
@@ -50,11 +57,15 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("  " + helpBold.Render("Commands"))
 	printCmd("oops log", "show undo history")
+	printCmd("oops status", "show health and backup state")
 	printCmd("oops show", "preview an undo")
+	printCmd("oops diff", "compare backup with current files")
 	printCmd("oops keep", "keep a backup from cleanup")
 	printCmd("oops size", "show backup disk usage")
 	printCmd("oops clean", "remove old backups")
+	printCmd("oops cleanup-service", "run cleanup in the background")
 	printCmd("oops config", "view or change settings")
+	printCmd("oops protect-path", "manage high-safety paths")
 	printCmd("oops doctor", "check installation health")
 	printCmd("oops init <shell>", "print shell hook (zsh, bash, fish)")
 	printCmd("oops agent-mode", "toggle AI agent protection")
@@ -64,6 +75,9 @@ func customHelp(cmd *cobra.Command, args []string) {
 	fmt.Println("  " + helpBold.Render("Flags"))
 	printCmd("--version, -v", "print version")
 	printCmd("--upgrade", "upgrade to the latest version")
+	printCmd("--overwrite", "overwrite existing restore targets")
+	printCmd("--backup-current", "move existing targets aside")
+	printCmd("--to <dir>", "restore into another directory")
 	fmt.Println()
 	fmt.Println("  " + helpBold.Render("Examples"))
 	fmt.Println("    " + helpDim.Render("$") + " rm important-file.txt")
@@ -142,18 +156,34 @@ func runUndo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no backup found for this action")
 	}
 
-	restored, err := trash.Restore(entry.TrashDir)
+	if restoreOverwrite && restoreBackupCurrent {
+		return fmt.Errorf("use only one of --overwrite or --backup-current")
+	}
+
+	restored, err := trash.RestoreWithOptions(entry.TrashDir, trash.RestoreOptions{
+		Overwrite:     restoreOverwrite,
+		BackupCurrent: restoreBackupCurrent,
+		ToDir:         restoreToDir,
+	})
 	if err != nil {
 		return fmt.Errorf("restoring files: %w", err)
 	}
 
-	if err := journal.MarkUndone(entry.ID); err != nil {
-		fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
+	if restoreToDir == "" {
+		if err := journal.MarkUndone(entry.ID); err != nil {
+			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
+		}
 	}
 
 	fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 	for _, f := range restored {
-		fmt.Println(style.Restored(f))
+		fmt.Println(style.Restored(f.Path))
+		if f.BackupCurrent != "" {
+			fmt.Println(style.Dim.Render("  saved current as ") + style.Cyan.Render(style.ShortenPath(f.BackupCurrent)))
+		}
+	}
+	if restoreToDir != "" {
+		fmt.Println(style.Dim.Render("  original undo entry was left available"))
 	}
 
 	return nil

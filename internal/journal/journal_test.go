@@ -135,6 +135,40 @@ func TestMarkPinnedAndDeleteBefore(t *testing.T) {
 	}
 }
 
+func TestDeleteBeforeKeepsEntryUntilKeepUntilExpires(t *testing.T) {
+	cleanup := setupTestJournal(t)
+	defer cleanup()
+
+	old := time.Now().Add(-3 * time.Hour).Format(time.RFC3339)
+	if err := Append(Entry{
+		ID:        "protected",
+		Timestamp: old,
+		Command:   "rm protected",
+		KeepUntil: time.Now().Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(Entry{ID: "drop-me", Timestamp: old, Command: "rm old"}); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := DeleteBefore(time.Now().Add(-2 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected 1 expired entry removed, got %d", removed)
+	}
+
+	entries, err := ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "protected" {
+		t.Fatalf("expected protected entry to remain, got %+v", entries)
+	}
+}
+
 func TestGenerateID(t *testing.T) {
 	id1 := GenerateID()
 	id2 := GenerateID()

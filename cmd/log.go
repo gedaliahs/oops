@@ -48,6 +48,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 		if e.Pinned {
 			undone += style.Green.Render(" (kept)")
 		}
+		if e.Protected {
+			undone += style.Yellow.Render(" (protected)")
+		}
 
 		fmt.Printf("%s %s %s %s%s\n", style.Bold.Render(num), ts, risk, desc, undone)
 		if len(e.Files) > 0 {

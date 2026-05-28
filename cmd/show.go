@@ -58,6 +58,12 @@ func printEntryPreview(entry journal.Entry) {
 	if entry.Pinned {
 		fmt.Println(style.Dim.Render("  Keep: ") + "yes")
 	}
+	if entry.Protected {
+		fmt.Println(style.Dim.Render("  Protected: ") + "yes")
+	}
+	if entry.KeepUntil != "" {
+		fmt.Println(style.Dim.Render("  Keep until: ") + entry.KeepUntil)
+	}
 	fmt.Println(style.Dim.Render("  Command: ") + style.ShortenPath(entry.Command))
 	fmt.Println(style.Dim.Render("  Action: ") + style.ShortenPath(entry.Desc))
 

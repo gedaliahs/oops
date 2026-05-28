@@ -6,14 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	RetentionHours int    `json:"retention_hours"`
-	MaxTrashBytes  int64  `json:"max_trash_bytes"`
-	RiskWarning    bool   `json:"risk_warning"`
-	ConfirmMode    string `json:"confirm_mode"` // "off", "high", "all"
+	RetentionHours int             `json:"retention_hours"`
+	MaxTrashBytes  int64           `json:"max_trash_bytes"`
+	RiskWarning    bool            `json:"risk_warning"`
+	ConfirmMode    string          `json:"confirm_mode"` // "off", "high", "all"
+	ProtectedPaths []ProtectedPath `json:"protected_paths,omitempty"`
+}
+
+type ProtectedPath struct {
+	Path           string `json:"path"`
+	AlwaysConfirm  bool   `json:"always_confirm,omitempty"`
+	RetentionHours int    `json:"retention_hours,omitempty"`
 }
 
 var Default = Config{
@@ -24,11 +32,12 @@ var Default = Config{
 }
 
 type diskConfig struct {
-	RetentionHours *int    `json:"retention_hours"`
-	RetentionDays  *int    `json:"retention_days"` // Legacy, migrated on load.
-	MaxTrashBytes  *int64  `json:"max_trash_bytes"`
-	RiskWarning    *bool   `json:"risk_warning"`
-	ConfirmMode    *string `json:"confirm_mode"`
+	RetentionHours *int             `json:"retention_hours"`
+	RetentionDays  *int             `json:"retention_days"` // Legacy, migrated on load.
+	MaxTrashBytes  *int64           `json:"max_trash_bytes"`
+	RiskWarning    *bool            `json:"risk_warning"`
+	ConfirmMode    *string          `json:"confirm_mode"`
+	ProtectedPaths *[]ProtectedPath `json:"protected_paths"`
 }
 
 func OopsDir() string {
@@ -76,6 +85,9 @@ func Load() Config {
 	if disk.ConfirmMode != nil {
 		cfg.ConfirmMode = *disk.ConfirmMode
 	}
+	if disk.ProtectedPaths != nil {
+		cfg.ProtectedPaths = normalizeProtectedPaths(*disk.ProtectedPaths)
+	}
 	if cfg.RetentionHours <= 0 {
 		cfg.RetentionHours = Default.RetentionHours
 	}
@@ -110,6 +122,8 @@ func Get(key string) string {
 		return strconv.FormatBool(cfg.RiskWarning)
 	case "confirm_mode":
 		return cfg.ConfirmMode
+	case "protected_paths":
+		return strconv.Itoa(len(cfg.ProtectedPaths))
 	default:
 		return ""
 	}
@@ -147,6 +161,164 @@ func Set(key, value string) error {
 		return fmt.Errorf("unknown key: %s", key)
 	}
 	return Save(cfg)
+}
+
+func ApplyPreset(name string) (Config, error) {
+	cfg := Load()
+	switch name {
+	case "cautious":
+		cfg.RetentionHours = 24
+		cfg.RiskWarning = true
+		cfg.ConfirmMode = "high"
+	case "agent":
+		cfg.RetentionHours = 6
+		cfg.RiskWarning = true
+		cfg.ConfirmMode = "all"
+	case "quiet":
+		cfg.RetentionHours = 2
+		cfg.RiskWarning = false
+		cfg.ConfirmMode = "off"
+	default:
+		return cfg, fmt.Errorf("unknown preset: %s (use cautious, agent, or quiet)", name)
+	}
+	return cfg, Save(cfg)
+}
+
+func AddProtectedPath(path string, alwaysConfirm bool, retentionHours int) (ProtectedPath, error) {
+	if retentionHours < 0 {
+		return ProtectedPath{}, fmt.Errorf("retention_hours must be positive")
+	}
+	normalized, err := NormalizePath(path)
+	if err != nil {
+		return ProtectedPath{}, err
+	}
+
+	cfg := Load()
+	rule := ProtectedPath{
+		Path:           normalized,
+		AlwaysConfirm:  alwaysConfirm,
+		RetentionHours: retentionHours,
+	}
+	replaced := false
+	for i := range cfg.ProtectedPaths {
+		if cfg.ProtectedPaths[i].Path == normalized {
+			cfg.ProtectedPaths[i] = rule
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		cfg.ProtectedPaths = append(cfg.ProtectedPaths, rule)
+	}
+	return rule, Save(cfg)
+}
+
+func RemoveProtectedPath(path string) (bool, error) {
+	normalized, err := NormalizePath(path)
+	if err != nil {
+		return false, err
+	}
+
+	cfg := Load()
+	filtered := cfg.ProtectedPaths[:0]
+	removed := false
+	for _, rule := range cfg.ProtectedPaths {
+		if rule.Path == normalized {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, rule)
+	}
+	cfg.ProtectedPaths = filtered
+	if !removed {
+		return false, nil
+	}
+	return true, Save(cfg)
+}
+
+func (cfg Config) MatchProtectedPath(files []string, cwd string) (ProtectedPath, bool) {
+	if len(cfg.ProtectedPaths) == 0 {
+		return ProtectedPath{}, false
+	}
+
+	candidates := files
+	if len(candidates) == 0 && cwd != "" {
+		candidates = []string{cwd}
+	}
+
+	for _, candidate := range candidates {
+		normalized, err := normalizePathFrom(candidate, cwd)
+		if err != nil {
+			continue
+		}
+		for _, rule := range cfg.ProtectedPaths {
+			if pathContains(rule.Path, normalized) {
+				return rule, true
+			}
+		}
+	}
+
+	return ProtectedPath{}, false
+}
+
+func NormalizePath(path string) (string, error) {
+	return normalizePathFrom(path, "")
+}
+
+func normalizeProtectedPaths(rules []ProtectedPath) []ProtectedPath {
+	normalized := make([]ProtectedPath, 0, len(rules))
+	seen := make(map[string]bool, len(rules))
+	for _, rule := range rules {
+		if rule.Path == "" {
+			continue
+		}
+		path, err := NormalizePath(rule.Path)
+		if err != nil || seen[path] {
+			continue
+		}
+		if rule.RetentionHours < 0 {
+			rule.RetentionHours = 0
+		}
+		rule.Path = path
+		normalized = append(normalized, rule)
+		seen[path] = true
+	}
+	return normalized
+}
+
+func normalizePathFrom(path, cwd string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	if !filepath.IsAbs(path) {
+		base := cwd
+		if base == "" {
+			var err error
+			base, err = os.Getwd()
+			if err != nil {
+				return "", err
+			}
+		}
+		path = filepath.Join(base, path)
+	}
+	return filepath.Clean(path), nil
+}
+
+func pathContains(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
 }
 
 func (cfg Config) RetentionDuration() time.Duration {
