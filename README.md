@@ -64,15 +64,15 @@ $ oops
 | `oops --backup-current` | Move an existing target aside before restore |
 | `oops --to DIR` | Restore into a separate directory |
 | `oops status` | Show health, hook, trash, and policy state |
-| `oops diff` | Show changes between a backup and current files |
+| `oops diff` | Show changes between a backup and current files (colorized; `--full` for large files) |
 | `oops show` | Preview what would be restored |
-| `oops log` | Show undo history |
+| `oops log` | Show undo history (filter with `--risk`, `--path`, `--here`; `--absolute`, `--flat`) |
 | `oops keep` | Keep a backup from automatic cleanup |
 | `oops unkeep` | Allow a kept backup to be cleaned up |
 | `oops size` | Show backup disk usage |
 | `oops clean` | Remove old backups (`--all` for everything) |
 | `oops cleanup-service` | Install, remove, or inspect hourly background cleanup |
-| `oops config` | View or change settings |
+| `oops config` | View or change settings (`onboarding_hints` toggles the new-user undo hint) |
 | `oops config preset agent` | Apply a risk policy preset (`normal`, `agent`, `cautious`, `quiet`) |
 | `oops protect-path` | Add high-safety rules for important paths |
 | `oops doctor` | Check installation health |

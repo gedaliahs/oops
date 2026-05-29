@@ -35,6 +35,37 @@ func runProtect(cmd *cobra.Command, args []string) error {
 	return doProtect(command)
 }
 
+// catchLearnLimit is how many catches a new user sees the inline undo hint for
+// before it fades to the quiet baseline.
+const catchLearnLimit = 8
+
+// emitCatchNotice prints the post-command notice for a backed-up destructive
+// command. For brand-new users it teaches how to undo — a one-time two-line
+// nudge, then a fading inline hint — so the tool stops being invisible. Once the
+// user has run a successful undo (config.HasSeenUndo), it takes a read-only fast
+// path and reverts to the original quiet baseline: warn only on high-risk
+// commands when risk warnings are enabled.
+func emitCatchNotice(cfg config.Config, p *detect.Protection) {
+	desc := style.ShortenPath(p.Desc)
+	highRisk := p.Risk == detect.RiskHigh
+
+	if cfg.OnboardingHints && !config.HasSeenUndo() {
+		switch n := config.IncrementCatchCount(); {
+		case n <= 1:
+			fmt.Fprintln(os.Stderr, style.FirstCatchNudge(desc, highRisk))
+			return
+		case n <= catchLearnLimit:
+			fmt.Fprintln(os.Stderr, style.CatchHint(desc, highRisk))
+			return
+		}
+		// Past the learning window: fall through to the quiet baseline.
+	}
+
+	if highRisk && cfg.RiskWarning {
+		fmt.Fprintln(os.Stderr, style.Warning(desc))
+	}
+}
+
 func doProtect(command string) error {
 	protections := detect.Analyze(command)
 	if len(protections) == 0 {
@@ -63,8 +94,8 @@ func doProtect(command string) error {
 
 		if shouldConfirm {
 			fmt.Fprintf(os.Stderr, "OOPS_CONFIRM:%s\n", style.ShortenPath(p.Desc))
-		} else if p.Risk == detect.RiskHigh && cfg.RiskWarning {
-			fmt.Fprintln(os.Stderr, style.Warning(style.ShortenPath(p.Desc)))
+		} else {
+			emitCatchNotice(cfg, p)
 		}
 
 		id := journal.GenerateID()

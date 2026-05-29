@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gedaliah/oops/internal/config"
@@ -50,26 +51,68 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Println(style.Bold.Render("oops status"))
-	fmt.Println(style.Dim.Render("  Version: ") + "v" + Version + latestVersionSuffix())
-	fmt.Printf("%s %d hours\n", style.Dim.Render("  Retention:"), cfg.RetentionHours)
-	fmt.Printf("%s %s / %s\n", style.Dim.Render("  Trash:"), style.FormatSize(trash.TotalSize()), style.FormatSize(cfg.MaxTrashBytes))
-	fmt.Printf("%s %d\n", style.Dim.Render("  Undoable entries:"), undoable)
-	fmt.Printf("%s %d\n", style.Dim.Render("  Kept entries:"), kept)
-	fmt.Printf("%s %d\n", style.Dim.Render("  Protected entries:"), protected)
-	fmt.Printf("%s %d\n", style.Dim.Render("  Protected paths:"), len(cfg.ProtectedPaths))
-	fmt.Printf("%s %s\n", style.Dim.Render("  Confirm mode:"), cfg.ConfirmMode)
-	fmt.Printf("%s %v\n", style.Dim.Render("  Risk warnings:"), cfg.RiskWarning)
+	fmt.Println(style.Bold.Render("oops status") + style.Dim.Render("  v"+Version) + latestVersionSuffix())
+
+	fmt.Println(style.Bold.Render("Backups"))
+	statusRow("Trash", trashUsage(trash.TotalSize(), cfg.MaxTrashBytes))
+	statusRow("Retention", fmt.Sprintf("%d hours", cfg.RetentionHours))
+	statusRow("Undoable", strconv.Itoa(undoable))
+	statusRow("Kept", strconv.Itoa(kept))
+	statusRow("Protected", strconv.Itoa(protected))
+
+	fmt.Println(style.Bold.Render("Protection"))
+	statusRow("Confirm mode", confirmModeValue(cfg.ConfirmMode))
+	statusRow("Risk warnings", boolHealth(cfg.RiskWarning, "on", "off"))
+	statusRow("Onboarding", boolHealth(cfg.OnboardingHints, "on", "off"))
+	statusRow("Protected paths", strconv.Itoa(len(cfg.ProtectedPaths)))
+
+	fmt.Println(style.Bold.Render("System"))
 	if os.Getenv("OOPS_HOOK") == "1" {
-		fmt.Println(style.Dim.Render("  Hook loaded: ") + "yes")
+		statusRow("Hook loaded", style.Green.Render(style.SymOK+" yes"))
 	} else {
-		fmt.Println(style.Dim.Render("  Hook loaded: ") + "not in this process")
+		statusRow("Hook loaded", style.Yellow.Render(style.SymWarn+" not in this process"))
 	}
 	if newest != nil {
-		fmt.Println(style.Dim.Render("  Last action: ") + style.ShortenPath(newest.Desc))
+		statusRow("Last action", style.ShortenPath(newest.Desc)+style.Dim.Render("  ("+style.RelativeTime(newest.Timestamp)+")"))
 	}
 
 	return nil
+}
+
+// statusRow prints a dimmed, fixed-width label followed by its value. The label
+// is padded before styling so alignment is unaffected by ANSI codes.
+func statusRow(label, value string) {
+	fmt.Println(style.Dim.Render(fmt.Sprintf("  %-16s", label)) + value)
+}
+
+// trashUsage renders a colored usage bar on a TTY, falling back to plain text
+// when piped (Lipgloss strips color but not the bar's block glyphs).
+func trashUsage(used, total int64) string {
+	sizeText := style.FormatSize(used) + " / " + style.FormatSize(total)
+	pct := 0
+	if total > 0 {
+		pct = int(float64(used)/float64(total)*100 + 0.5)
+	}
+	if style.IsTTY() {
+		return style.UsageBar(used, total, 12) + "   " + sizeText
+	}
+	return fmt.Sprintf("%s (%d%%)", sizeText, pct)
+}
+
+func confirmModeValue(mode string) string {
+	switch mode {
+	case "all", "high":
+		return style.Green.Render(mode)
+	default:
+		return style.Dim.Render("off")
+	}
+}
+
+func boolHealth(on bool, yes, no string) string {
+	if on {
+		return style.Green.Render(style.SymOK + " " + yes)
+	}
+	return style.Yellow.Render(style.SymWarn + " " + no)
 }
 
 func latestVersionSuffix() string {

@@ -53,7 +53,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 func printEntryPreview(entry journal.Entry) {
 	fmt.Println(style.Bold.Render("Undo preview"))
 	fmt.Println(style.Dim.Render("  ID: ") + entry.ID)
-	fmt.Println(style.Dim.Render("  Time: ") + entry.Timestamp)
+	fmt.Println(style.Dim.Render("  Time: ") + style.RelativeTime(entry.Timestamp) + style.Dim.Render("  ("+entry.Timestamp+")"))
 	fmt.Println(style.Dim.Render("  Risk: ") + entry.Risk)
 	if entry.Pinned {
 		fmt.Println(style.Dim.Render("  Keep: ") + "yes")

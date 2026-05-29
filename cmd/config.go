@@ -18,6 +18,7 @@ Available keys:
   max_trash_bytes  Maximum trash size in bytes (default: 5368709120)
   risk_warning     Show warnings for high-risk commands (default: true)
   confirm_mode     Confirmation prompts: off, high, or all (default: off)
+  onboarding_hints Teach new users to undo at the catch moment (default: true)
 
 Examples:
   oops config                        # show all settings
@@ -41,6 +42,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		fmt.Printf("max_trash_bytes  = %d (%s)\n", cfg.MaxTrashBytes, style.FormatSize(cfg.MaxTrashBytes))
 		fmt.Printf("risk_warning     = %v\n", cfg.RiskWarning)
 		fmt.Printf("confirm_mode     = %s\n", cfg.ConfirmMode)
+		fmt.Printf("onboarding_hints = %v\n", cfg.OnboardingHints)
 		fmt.Printf("protected_paths  = %d\n", len(cfg.ProtectedPaths))
 		return nil
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gedaliah/oops/internal/cleanup"
+	"github.com/gedaliah/oops/internal/config"
 	"github.com/gedaliah/oops/internal/journal"
 	"github.com/gedaliah/oops/internal/style"
 	"github.com/gedaliah/oops/internal/trash"
@@ -23,7 +24,7 @@ var (
 	helpDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ca3af"))
 )
 
-var Version = "0.5.3"
+var Version = "0.6.0"
 
 var versionFlag bool
 var upgradeFlag bool
@@ -208,6 +209,8 @@ func runUndo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("restoring files: %w", err)
 	}
 
+	config.MarkSeenUndo()
+
 	if restoreToDir == "" {
 		if err := journal.MarkUndone(entry.ID); err != nil {
 			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
@@ -335,6 +338,7 @@ func undoGit(entry journal.Entry) error {
 		if err := journal.MarkUndone(entry.ID); err != nil {
 			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
 		}
+		config.MarkSeenUndo()
 		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 		fmt.Println(style.Green.Render("  Applied stash: ") + stashRef)
 
@@ -350,6 +354,7 @@ func undoGit(entry journal.Entry) error {
 		if err := journal.MarkUndone(entry.ID); err != nil {
 			fmt.Fprintln(os.Stderr, style.Warning("Could not mark entry as undone: "+err.Error()))
 		}
+		config.MarkSeenUndo()
 		fmt.Println(style.Success(fmt.Sprintf("Undid: %s", style.ShortenPath(entry.Desc))))
 		fmt.Println(style.Green.Render("  Restored branch: ") + branchName + " at " + entry.GitSHA[:8])
 

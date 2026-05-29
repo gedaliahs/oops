@@ -13,7 +13,8 @@ _oops_preexec() {
       output=$(%s protect -- "$cmd" 2>&1 1>/dev/null)
       if echo "$output" | grep -q "^OOPS_CONFIRM:"; then
         local desc="${output#OOPS_CONFIRM:}"
-        printf "\033[0;33m%%s\033[0m Proceed? [Y/n] " "$desc"
+        printf "\033[0;33m%%s\033[0m\n" "$desc"
+        printf "\033[2mbacked up - undoable with 'oops'.\033[0m Proceed? [Y/n] "
         read -r reply
         case "$reply" in
           [nN]*) return 1 ;;
@@ -47,7 +48,8 @@ _oops_preexec() {
       output=$(%s protect -- "$cmd" 2>&1 1>/dev/null)
       if echo "$output" | grep -q "^OOPS_CONFIRM:"; then
         local desc="${output#OOPS_CONFIRM:}"
-        printf "\033[0;33m%%s\033[0m Proceed? [Y/n] " "$desc"
+        printf "\033[0;33m%%s\033[0m\n" "$desc"
+        printf "\033[2mbacked up - undoable with 'oops'.\033[0m Proceed? [Y/n] "
         read -r reply
         case "$reply" in
           [nN]*) return 1 ;;
@@ -77,7 +79,8 @@ function _oops_preexec --on-event fish_preexec
       set output (%s protect -- "$cmd" 2>&1 1>/dev/null)
       if string match -q "OOPS_CONFIRM:*" -- $output
         set -l desc (string replace "OOPS_CONFIRM:" "" -- $output)
-        read -P (set_color yellow)"$desc"(set_color normal)" Proceed? [Y/n] " reply
+        echo (set_color yellow)"$desc"(set_color normal)
+        read -P (set_color brblack)"backed up - undoable with 'oops'."(set_color normal)" Proceed? [Y/n] " reply
         if string match -qi "n*" -- $reply
           return 1
         end

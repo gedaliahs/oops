@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	RetentionHours int             `json:"retention_hours"`
-	MaxTrashBytes  int64           `json:"max_trash_bytes"`
-	RiskWarning    bool            `json:"risk_warning"`
-	ConfirmMode    string          `json:"confirm_mode"` // "off", "high", "all"
-	ProtectedPaths []ProtectedPath `json:"protected_paths,omitempty"`
+	RetentionHours  int             `json:"retention_hours"`
+	MaxTrashBytes   int64           `json:"max_trash_bytes"`
+	RiskWarning     bool            `json:"risk_warning"`
+	ConfirmMode     string          `json:"confirm_mode"` // "off", "high", "all"
+	OnboardingHints bool            `json:"onboarding_hints"`
+	ProtectedPaths  []ProtectedPath `json:"protected_paths,omitempty"`
 }
 
 type ProtectedPath struct {
@@ -25,19 +26,21 @@ type ProtectedPath struct {
 }
 
 var Default = Config{
-	RetentionHours: 2,
-	MaxTrashBytes:  5 * 1024 * 1024 * 1024, // 5GB
-	RiskWarning:    true,
-	ConfirmMode:    "off",
+	RetentionHours:  2,
+	MaxTrashBytes:   5 * 1024 * 1024 * 1024, // 5GB
+	RiskWarning:     true,
+	ConfirmMode:     "off",
+	OnboardingHints: true,
 }
 
 type diskConfig struct {
-	RetentionHours *int             `json:"retention_hours"`
-	RetentionDays  *int             `json:"retention_days"` // Legacy, migrated on load.
-	MaxTrashBytes  *int64           `json:"max_trash_bytes"`
-	RiskWarning    *bool            `json:"risk_warning"`
-	ConfirmMode    *string          `json:"confirm_mode"`
-	ProtectedPaths *[]ProtectedPath `json:"protected_paths"`
+	RetentionHours  *int             `json:"retention_hours"`
+	RetentionDays   *int             `json:"retention_days"` // Legacy, migrated on load.
+	MaxTrashBytes   *int64           `json:"max_trash_bytes"`
+	RiskWarning     *bool            `json:"risk_warning"`
+	ConfirmMode     *string          `json:"confirm_mode"`
+	OnboardingHints *bool            `json:"onboarding_hints"`
+	ProtectedPaths  *[]ProtectedPath `json:"protected_paths"`
 }
 
 func OopsDir() string {
@@ -59,6 +62,14 @@ func ConfigPath() string {
 
 func LastCleanupPath() string {
 	return filepath.Join(OopsDir(), ".last_cleanup")
+}
+
+func CatchCountPath() string {
+	return filepath.Join(OopsDir(), ".catch_count")
+}
+
+func SeenUndoPath() string {
+	return filepath.Join(OopsDir(), ".seen_undo")
 }
 
 func Load() Config {
@@ -84,6 +95,9 @@ func Load() Config {
 	}
 	if disk.ConfirmMode != nil {
 		cfg.ConfirmMode = *disk.ConfirmMode
+	}
+	if disk.OnboardingHints != nil {
+		cfg.OnboardingHints = *disk.OnboardingHints
 	}
 	if disk.ProtectedPaths != nil {
 		cfg.ProtectedPaths = normalizeProtectedPaths(*disk.ProtectedPaths)
@@ -122,6 +136,8 @@ func Get(key string) string {
 		return strconv.FormatBool(cfg.RiskWarning)
 	case "confirm_mode":
 		return cfg.ConfirmMode
+	case "onboarding_hints":
+		return strconv.FormatBool(cfg.OnboardingHints)
 	case "protected_paths":
 		return strconv.Itoa(len(cfg.ProtectedPaths))
 	default:
@@ -157,6 +173,8 @@ func Set(key, value string) error {
 			return fmt.Errorf("invalid confirm_mode: %s (use off, high, or all)", value)
 		}
 		cfg.ConfirmMode = value
+	case "onboarding_hints":
+		cfg.OnboardingHints = value == "true" || value == "1"
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
@@ -170,18 +188,22 @@ func ApplyPreset(name string) (Config, error) {
 		cfg.RetentionHours = Default.RetentionHours
 		cfg.RiskWarning = Default.RiskWarning
 		cfg.ConfirmMode = Default.ConfirmMode
+		cfg.OnboardingHints = true
 	case "cautious":
 		cfg.RetentionHours = 24
 		cfg.RiskWarning = true
 		cfg.ConfirmMode = "high"
+		cfg.OnboardingHints = true
 	case "agent":
 		cfg.RetentionHours = 6
 		cfg.RiskWarning = true
 		cfg.ConfirmMode = "all"
+		cfg.OnboardingHints = false
 	case "quiet":
 		cfg.RetentionHours = 2
 		cfg.RiskWarning = false
 		cfg.ConfirmMode = "off"
+		cfg.OnboardingHints = false
 	default:
 		return cfg, fmt.Errorf("unknown preset: %s (use normal, cautious, agent, or quiet)", name)
 	}
@@ -390,4 +412,43 @@ func ShouldCleanup() bool {
 
 func MarkCleanup() {
 	_ = os.WriteFile(LastCleanupPath(), []byte(time.Now().Format(time.RFC3339)), 0o644)
+}
+
+// CatchCount returns how many destructive commands oops has caught for this user,
+// used to fade the onboarding hint. Returns 0 when unreadable.
+func CatchCount() int {
+	data, err := os.ReadFile(CatchCountPath())
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// IncrementCatchCount bumps the catch counter and returns the new value. Failures
+// are tolerated silently (the counter is best-effort onboarding state, not data).
+func IncrementCatchCount() int {
+	n := CatchCount() + 1
+	if err := os.MkdirAll(OopsDir(), 0o755); err == nil {
+		_ = os.WriteFile(CatchCountPath(), []byte(strconv.Itoa(n)), 0o644)
+	}
+	return n
+}
+
+// HasSeenUndo reports whether the user has ever successfully run an undo. Once
+// true, onboarding hints stop entirely and the catch path takes a read-only fast
+// path that performs no writes.
+func HasSeenUndo() bool {
+	_, err := os.Stat(SeenUndoPath())
+	return err == nil
+}
+
+// MarkSeenUndo records that the user has completed an undo. Best-effort.
+func MarkSeenUndo() {
+	if err := os.MkdirAll(OopsDir(), 0o755); err == nil {
+		_ = os.WriteFile(SeenUndoPath(), []byte(time.Now().Format(time.RFC3339)), 0o644)
+	}
 }
