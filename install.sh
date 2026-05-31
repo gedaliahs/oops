@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_VERSION="0.6.0"
+DEFAULT_VERSION="0.6.1"
 REPO="gedaliahs/oops"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 

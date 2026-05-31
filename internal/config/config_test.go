@@ -20,6 +20,9 @@ func TestLoadDefaultRetentionHours(t *testing.T) {
 	if cfg.RetentionHours != 2 {
 		t.Fatalf("expected default retention to be 2 hours, got %d", cfg.RetentionHours)
 	}
+	if cfg.MaxTrashBytes != MaxTrashBytesLimit {
+		t.Fatalf("expected default max trash to be %d, got %d", MaxTrashBytesLimit, cfg.MaxTrashBytes)
+	}
 }
 
 func TestLoadMigratesLegacyRetentionDays(t *testing.T) {
@@ -73,6 +76,30 @@ func TestSetRetentionHoursSavesNewKey(t *testing.T) {
 	}
 	if _, ok := raw["retention_hours"]; !ok {
 		t.Fatalf("config missing retention_hours key: %s", data)
+	}
+}
+
+func TestSetMaxTrashBytesRejectsValuesAboveLimit(t *testing.T) {
+	setupTestConfig(t)
+
+	if err := Set("max_trash_bytes", "26843545601"); err == nil {
+		t.Fatal("expected max_trash_bytes above the limit to fail")
+	}
+}
+
+func TestLoadClampsMaxTrashBytesAboveLimit(t *testing.T) {
+	setupTestConfig(t)
+	if err := os.MkdirAll(OopsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"max_trash_bytes":53687091200}`)
+	if err := os.WriteFile(ConfigPath(), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Load()
+	if cfg.MaxTrashBytes != MaxTrashBytesLimit {
+		t.Fatalf("expected max_trash_bytes to clamp to %d, got %d", MaxTrashBytesLimit, cfg.MaxTrashBytes)
 	}
 }
 

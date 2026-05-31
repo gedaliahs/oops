@@ -15,7 +15,7 @@ var configCmd = &cobra.Command{
 
 Available keys:
   retention_hours  Hours to keep backups (default: 2)
-  max_trash_bytes  Maximum trash size in bytes (default: 5368709120)
+  max_trash_bytes  Maximum trash size in bytes (default/max: 26843545600)
   risk_warning     Show warnings for high-risk commands (default: true)
   confirm_mode     Confirmation prompts: off, high, or all (default: off)
   onboarding_hints Teach new users to undo at the catch moment (default: true)

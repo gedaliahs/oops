@@ -36,10 +36,10 @@ func TestSelectLogRowsPreservesIndex(t *testing.T) {
 	// Simulates journal.Last output (newest-first). The index `oops N` restores
 	// is the position in THIS slice, so filtering must keep those indices intact.
 	entries := []journal.Entry{
-		{Risk: "high", CWD: "/home/u/projA", Desc: "rm -r /home/u/projA/src"},   // oops 1
-		{Risk: "medium", CWD: "/home/u/projB", Desc: "sed -i /home/u/projB/x"},  // oops 2
-		{Risk: "high", CWD: "/home/u/projA", Desc: "git reset --hard"},          // oops 3
-		{Risk: "low", CWD: "/home/u/projC", Desc: "cp a b"},                     // oops 4
+		{Risk: "high", CWD: "/home/u/projA", Desc: "rm -r /home/u/projA/src"},  // oops 1
+		{Risk: "medium", CWD: "/home/u/projB", Desc: "sed -i /home/u/projB/x"}, // oops 2
+		{Risk: "high", CWD: "/home/u/projA", Desc: "git reset --hard"},         // oops 3
+		{Risk: "low", CWD: "/home/u/projC", Desc: "cp a b"},                    // oops 4
 	}
 
 	rows := selectLogRows(entries, "high", "", "", false)

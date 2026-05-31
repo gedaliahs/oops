@@ -25,9 +25,11 @@ type ProtectedPath struct {
 	RetentionHours int    `json:"retention_hours,omitempty"`
 }
 
+const MaxTrashBytesLimit int64 = 25 * 1024 * 1024 * 1024 // 25GB
+
 var Default = Config{
 	RetentionHours:  2,
-	MaxTrashBytes:   5 * 1024 * 1024 * 1024, // 5GB
+	MaxTrashBytes:   MaxTrashBytesLimit,
 	RiskWarning:     true,
 	ConfirmMode:     "off",
 	OnboardingHints: true,
@@ -108,6 +110,9 @@ func Load() Config {
 	if cfg.MaxTrashBytes <= 0 {
 		cfg.MaxTrashBytes = Default.MaxTrashBytes
 	}
+	if cfg.MaxTrashBytes > MaxTrashBytesLimit {
+		cfg.MaxTrashBytes = MaxTrashBytesLimit
+	}
 	if cfg.ConfirmMode != "off" && cfg.ConfirmMode != "high" && cfg.ConfirmMode != "all" {
 		cfg.ConfirmMode = Default.ConfirmMode
 	}
@@ -164,6 +169,9 @@ func Set(key, value string) error {
 		n, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || n <= 0 {
 			return fmt.Errorf("invalid value for max_trash_bytes: %s", value)
+		}
+		if n > MaxTrashBytesLimit {
+			return fmt.Errorf("max_trash_bytes cannot exceed %d bytes", MaxTrashBytesLimit)
 		}
 		cfg.MaxTrashBytes = n
 	case "risk_warning":
